@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": [
+              "-NoProfile",
+              "-Command",
+              "try { $j = [Console]::In.ReadToEnd() | ConvertFrom-Json } catch { exit 0 }; if ($j.tool_input.file_path -like '*deck-estimator*') { @{ hookSpecificOutput = @{ hookEventName = 'PostToolUse'; additionalContext = 'You changed deck-estimator.html. Before ending this turn, VERIFY THE SAVE FEATURE still works: in the preview, reload the page, confirm there is no load-time script error (e.g. window.__LOADERR is undefined), then click the Save button and confirm the layout persists to localStorage. Save has broken repeatedly from a top-level throw in script 1 that silently unbinds the Save/Load buttons (e.g. a forward cross-script reference).' } } | ConvertTo-Json -Compress }"
+            ],
+            "statusMessage": "Save-feature check reminder",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

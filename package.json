@@ -1,0 +1,12 @@
+{
+  "name": "deck-estimator",
+  "version": "1.0.0",
+  "description": "CLI tool to estimate materials and labor for a deck build",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
