@@ -669,6 +669,13 @@
         </select>
       </div>
       <div class="field" style="margin-top:.6rem">
+        <label>Diagonal Direction <span style="font-size:10px;color:var(--muted)">(when angled)</span></label>
+        <select id="deckAngleDir">
+          <option value="left" selected>45° left (clockwise)</option>
+          <option value="right">45° right (counter-clockwise)</option>
+        </select>
+      </div>
+      <div class="field" style="margin-top:.6rem">
         <label>Board Fastener <span style="font-size:10px;color:var(--muted)">(2/joist, hidden clips 1/joist)</span></label>
         <select id="deckFastener">
           <option value="0" selected>Coated deck screws (#9 × 2½") — $0.10 ea</option>
@@ -3079,13 +3086,34 @@ function computeDeckingLayout() {
   const angledFields = [];
   if (angled) {
     const d = boardW + GAP, SQ = Math.SQRT1_2;
-    const toU = (x, z) => (x + z) * SQ;        // board LENGTH axis = (1,1)/√2
-    const toV = (x, z) => (x - z) * SQ;        // board SPACING axis = (1,-1)/√2 (⟂ to length)
+    // Diagonal direction: 'left' (default, clockwise) runs boards along (1,1); 'right'
+    // (counter-clockwise) mirrors to (1,-1). Swapping the length/spacing axes flips the
+    // whole field — the clip + merge below are axis-agnostic, so render and BOM follow.
+    const dirRight = (document.getElementById('deckAngleDir')?.value || 'left') === 'right';
+    const toU = dirRight ? (x, z) => (x - z) * SQ : (x, z) => (x + z) * SQ;   // board LENGTH axis
+    const toV = dirRight ? (x, z) => (x + z) * SQ : (x, z) => (x - z) * SQ;   // board SPACING axis (⟂)
     const cellRect = (r, c) => {               // painted cell, exposed edges pulled in by d
       let xL = c * cellSize, xR = (c + 1) * cellSize, zT = r * cellSize, zB = (r + 1) * cellSize;
       if (!pn(r, c - 1)) xL += d; if (!pn(r, c + 1)) xR -= d;
       if (!pn(r - 1, c)) zT += d; if (!pn(r + 1, c)) zB -= d;
-      return (xR - xL > 0.02 && zB - zT > 0.02) ? [[xL, zT], [xR, zT], [xR, zB], [xL, zB]] : null;
+      if (xR - xL <= 0.02 || zB - zT <= 0.02) return null;
+      // Reentrant (concave) deck corners: a perimeter course wraps the notch from a
+      // DIAGONAL unpainted cell even though THIS cell's own edges are interior, so the
+      // field would poke into that frame. CHAMFER such corners by d to keep the 1/8" gap.
+      // (Convex corners are already cleared by the edge insets above.)
+      const room = (xR - xL > 2 * d && zB - zT > 2 * d);
+      const TL = room && pn(r - 1, c) && pn(r, c - 1) && !pn(r - 1, c - 1);
+      const TR = room && pn(r - 1, c) && pn(r, c + 1) && !pn(r - 1, c + 1);
+      const BR = room && pn(r + 1, c) && pn(r, c + 1) && !pn(r + 1, c + 1);
+      const BL = room && pn(r + 1, c) && pn(r, c - 1) && !pn(r + 1, c - 1);
+      if (!(TL || TR || BR || BL)) return [[xL, zT], [xR, zT], [xR, zB], [xL, zB]];
+      const poly = [];
+      poly.push(TL ? [xL + d, zT] : [xL, zT]);
+      if (TR) poly.push([xR - d, zT], [xR, zT + d]); else poly.push([xR, zT]);
+      if (BR) poly.push([xR, zB - d], [xR - d, zB]); else poly.push([xR, zB]);
+      if (BL) poly.push([xL + d, zB], [xL, zB - d]); else poly.push([xL, zB]);
+      if (TL) poly.push([xL, zT + d]);
+      return poly;
     };
     const clipHP = (poly, keep, cut) => {      // Sutherland–Hodgman against one half-plane
       const out = [];
@@ -6530,7 +6558,7 @@ const DEFAULT_LAYOUT = (() => {
       joistSpacing:'16', beamDepth:'2x10', beamPlies:'2', deckHeight:'84',
       gradeTL:'0', gradeTR:'0', gradeBL:'0', gradeBR:'24',   // default = the test layout: tall (knee braces + guard) + a BR-corner slope (sloped stringers/posts/kicker)
       joistOverhang:'12', kneeBraceSize:'2x6', ledgerFastener:'lag', bandBoard:'2x',
-      deckLayAngle:'perp', species:'4', deckFastener:'5', stainType:'0',
+      deckLayAngle:'perp', deckAngleDir:'left', species:'4', deckFastener:'5', stainType:'0',
       footingType:'tube', footingDepth:'36', codeFootSize:'auto', footShape:'square',
       anchorMethod:'standoff', digMethod:'hand', storeSelect:'homedepot', railingType:'2',
       hourlyRate:'30', crewSize:'3', demoEnabled:false, demoSqft:'200', demoDumpster:'auto',
