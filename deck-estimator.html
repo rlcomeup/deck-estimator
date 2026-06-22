@@ -1932,8 +1932,10 @@ function groundDropFt(x, z, clamp = true) {
 // Instead: the flight's rise/steps/billed-stringer-length come from the DEEPEST point
 // under the foot-line (stairFootMaxDropIn — nothing floats), and each stringer is drawn
 // cut to its OWN ground (stairFootDropFtAt, signed). The sample point is the run-out
-// (deck edge stepped outward by the flat-site run) at a given across offset; clamp=false
-// so the slope extrapolates past the deck edge onto the terrain.
+// (deck edge stepped outward by the flat-site run) at a given across offset; clamp=TRUE
+// so the foot sits on the SAME terrain the ground mesh draws — the rendered grass is also
+// clamped (flat at the edge grade beyond the footprint, line ~8102), so an UNclamped foot
+// would extrapolate the slope deeper than the drawn grass and bury the bottom step / foot.
 function _stairFootCenter(fx, fz, side, heightIn, riseIn, runIn) {
   const ox = side === 'left' ? -1 : side === 'right' ? 1 : 0;
   const oz = side === 'front' ? -1 : side === 'back' ? 1 : 0;
@@ -1944,7 +1946,7 @@ function _stairFootCenter(fx, fz, side, heightIn, riseIn, runIn) {
 // HIGH side, + into the low side). Per-stringer, so each lands on its own ground.
 function stairFootDropFtAt(fx, fz, side, heightIn, riseIn, runIn, acrossFt) {
   const f = _stairFootCenter(fx, fz, side, heightIn, riseIn, runIn);
-  return groundDropFt(f.horiz ? f.cx : fx + acrossFt, f.horiz ? fz + acrossFt : f.cz, false);
+  return groundDropFt(f.horiz ? f.cx : fx + acrossFt, f.horiz ? fz + acrossFt : f.cz, true);
 }
 // MAX drop (inches, ≥0, rounded) across the whole foot-line width — sets the rise/steps.
 function stairFootMaxDropIn(fx, fz, side, widthFt, heightIn, riseIn, runIn) {
@@ -2544,8 +2546,14 @@ function computeFramingPlan() {
     // a relocated post can land on top of its neighbour — keep posts ≥ 6" apart
     xs.sort((a, b) => a - b);
     const xsKept = xs.filter((x, i) => i === 0 || x - xs[i - 1] > 0.5);
-    // re-densify any code-violating span that the shift/merge opened up
-    return { z: bz, xs: enforceSpan(xsKept, bz, bx0, bx1), bx0, bx1 };
+    // re-densify any code-violating span that the shift/merge opened up.
+    // BEAM EXTENT extends jT/2 past the painted column edge at EACH end so it fully
+    // bears the outermost tributary joist, which is CENTERED on that edge (outer face
+    // jT/2 past) — otherwise that edge joist (incl. the rightmost/"last" spliced joist)
+    // rests only its inner HALF on the beam end. Posts keep the painted extent (above);
+    // only the billed + rendered beam reaches the joist's outer face. Mirrors the
+    // supplemental beam, which already spans joists[0].x − jT … joists[last].x + jT.
+    return { z: bz, xs: enforceSpan(xsKept, bz, bx0, bx1), bx0: bx0 - jTft / 2, bx1: bx1 + jTft / 2 };
   });
   // Supplemental beams: extent + their posts (same setback/spacing + no-dig rules).
   // A supplemental beam spans between two MAIN beam lines and carries a LOCAL tributary — ½ the gap
@@ -4111,6 +4119,11 @@ function stairFlightFromRun(run, sideFn) {
     side: sideFn(run[0]),
     wFt: Math.max(3, (horiz ? maxCC - minCC + 1 : maxRR - minRR + 1) * cellSize),
     sideNoRail: { neg: isNoRail(minRR, minCC), pos: isNoRail(maxRR, maxCC) },
+    // Cluster cell band — the stair's OWN exit edge is one of these boundaries, NOT the
+    // deck's bounding box. The 3D render uses this so a stair on a cascade STEP (an interior
+    // edge set back from the bbox) attaches to its real local edge instead of floating out
+    // at the global z0/z1/x0/x1.
+    minRR, maxRR, minCC, maxCC,
   };
 }
 
@@ -8891,15 +8904,12 @@ function init3D() {
   };
 
   beamZs.forEach(bz => {
-    // Actual painted X extent at this Z row
-    const row = Math.min(maxR, Math.max(minR, Math.floor(bz / cellSize)));
-    let cMin = maxC + 1, cMax = minC - 1;
-    for (let c = minC; c <= maxC; c++) {
-      if (grid[row][c]) { cMin = Math.min(cMin, c); cMax = Math.max(cMax, c); }
-    }
-    if (cMax < cMin) return; // entire row is unpainted — skip
-
-    const bx0 = cMin * cellSize, bx1 = (cMax + 1) * cellSize;
+    // Beam X extent comes from the SHARED framing plan (computeFramingPlan.postRows), so the
+    // billed beam, the 3D beam and the engineering drawing are the SAME length — including the
+    // jT/2 each-end extension that lets the outermost (centered) joist bear FULLY on the beam.
+    const pr = FP.postRows.find(r => Math.abs(r.z - bz) < 0.02);
+    if (!pr || pr.bx0 == null) return; // entire row is unpainted — skip
+    const bx0 = pr.bx0, bx1 = pr.bx1;
     const bLen = bx1 - bx0;
 
     // Beam clipped to local extent
@@ -8912,7 +8922,7 @@ function init3D() {
     // Posts and footings at the SHARED plan's positions for this row (corner
     // setback + even interior spacing, computed once in computeFramingPlan so
     // the engineering drawing shows the identical posts).
-    const rowPostXs = (FP.postRows.find(pr => Math.abs(pr.z - bz) < 0.02)?.xs ?? []).slice();
+    const rowPostXs = (pr.xs ?? []).slice();
     rowPostXs.forEach((px, pi, arr) => {
       // 2-ply: notched post — post offset so the beam fills the notch, un-notched
       // leg continues up beside it. 3-ply: post CENTERED under the beam with a metal
@@ -9244,9 +9254,29 @@ function init3D() {
       const { x: sCX, z: sCZ, side: sSide, wFt: stairWFt } = entry;
       // Attached decks: z0 is the house/ledger wall — stairs can't exit that way.
       if (!freestanding3d && sSide === 'front') continue;
+      // The rim/band joist (top/bottom edges) and the outermost field joist (left/right) are
+      // drawn CENTERED on the structural edge, so the framing's OUTER FACE is jT/2 beyond it.
+      // The whole flight bears on that outer face: shift its deck-edge reference out by jT/2 so
+      // the stringer's plumb back sits FLUSH on the framing instead of clipping into its body.
+      const flightSign = (sSide === 'front' || sSide === 'left') ? -1 : 1;
+      // Deck edge the flight attaches to = the stair's OWN local painted edge (from its cell
+      // band minRR/maxRR/minCC/maxCC), NOT the bounding box — so a stair on a cascade STEP
+      // (an interior edge set back from the bbox) rests on its real step framing instead of
+      // floating out at the global z0/z1/x0/x1. Falls back to the bbox edge for the synthetic
+      // default flight (no stair cells). The framing's OUTER FACE is jT/2 past that edge (rim /
+      // outermost joist drawn centered), so flightSign*(jT/2) seats the stringer back FLUSH on
+      // it (preserving the stringer-flush fix), not clipping into the body.
+      const localEdge = entry.minRR == null
+        ? (sSide === 'front' ? z0 : sSide === 'back' ? z1 : sSide === 'left' ? x0 : x1)
+        : sSide === 'front' ? entry.minRR * cellSize
+        : sSide === 'back'  ? (entry.maxRR + 1) * cellSize
+        : sSide === 'left'  ? entry.minCC * cellSize
+        :                     (entry.maxCC + 1) * cellSize;
+      const flightEdge = localEdge + flightSign * (jT / 2);
       // Sloped site: this flight lands on ground groundDropFt lower at its foot (the
-      // grade extrapolated past the deck edge by the run), so it gains rise → steps →
-      // stringer length. Everything below descends to −flightDropFt instead of grade 0.
+      // grade clamped to the deck-edge value — the SAME terrain the ground mesh draws, so
+      // the foot sits ON the visible grass and never sinks below it), so it gains rise →
+      // steps → stringer length. Everything below descends to −flightDropFt instead of 0.
       // Deepest ground across the foot-line sets the flight's rise/steps (so nothing
       // floats); SAME shared helper the cost uses → 3D steps === BOM steps. Each stringer
       // is then cut to its OWN ground below, so a diagonal grade no longer floats the low
@@ -9261,8 +9291,8 @@ function init3D() {
         const dist  = (steps - 1 - i) * stepRun;
         const topY  = yBase + stepRise;                       // this tread's walking surface
         const horiz = sSide === 'left' || sSide === 'right';  // flight runs along world X
-        const base  = sSide === 'front' ? z0 : sSide === 'back' ? z1 : sSide === 'left' ? x0 : x1;
-        const sign  = (sSide === 'front' || sSide === 'left') ? -1 : 1;
+        const base  = flightEdge;
+        const sign  = flightSign;
         const nearEdge = base + sign * dist;                  // deck-side edge of this tread
 
         // Tread = the SAME 5/4×6 species deck boards it is billed as — `treadBoards`
@@ -9385,19 +9415,19 @@ function init3D() {
           if (sSide === 'back') {
             // local u → world +Z,  extrude (local +Z) → world −X
             sm.rotation.y = -Math.PI / 2;
-            sm.position.set(sCX + off + sThk / 2, 0, z1);
+            sm.position.set(sCX + off + sThk / 2, 0, flightEdge);
           } else if (sSide === 'front') {
             // local u → world −Z,  extrude → world +X
             sm.rotation.y = Math.PI / 2;
-            sm.position.set(sCX + off - sThk / 2, 0, z0);
+            sm.position.set(sCX + off - sThk / 2, 0, flightEdge);
           } else if (sSide === 'right') {
             // local u → world +X,  extrude → world +Z
             sm.rotation.y = 0;
-            sm.position.set(x1, 0, sCZ + off - sThk / 2);
+            sm.position.set(flightEdge, 0, sCZ + off - sThk / 2);
           } else {
             // local u → world −X,  extrude → world −Z
             sm.rotation.y = Math.PI;
-            sm.position.set(x0, 0, sCZ + off + sThk / 2);
+            sm.position.set(flightEdge, 0, sCZ + off + sThk / 2);
           }
           // Drop the stringer one tread thickness so its top starts a tread below
           // the deck surface — the tread seats then align with the tread bottoms,
@@ -9409,10 +9439,10 @@ function init3D() {
           {
             const bh = 0.5, bt = 0.08, bw = sThk + 0.05, by = heightFt - treadH - bh / 2;
             let bg, bx, bz;
-            if (sSide === 'back')       { bg = new THREE.BoxGeometry(bw, bh, bt); bx = sCX + off; bz = z1 + bt / 2; }
-            else if (sSide === 'front') { bg = new THREE.BoxGeometry(bw, bh, bt); bx = sCX + off; bz = z0 - bt / 2; }
-            else if (sSide === 'right') { bg = new THREE.BoxGeometry(bt, bh, bw); bx = x1 + bt / 2; bz = sCZ + off; }
-            else                        { bg = new THREE.BoxGeometry(bt, bh, bw); bx = x0 - bt / 2; bz = sCZ + off; }
+            if (sSide === 'back')       { bg = new THREE.BoxGeometry(bw, bh, bt); bx = sCX + off; bz = flightEdge + bt / 2; }
+            else if (sSide === 'front') { bg = new THREE.BoxGeometry(bw, bh, bt); bx = sCX + off; bz = flightEdge - bt / 2; }
+            else if (sSide === 'right') { bg = new THREE.BoxGeometry(bt, bh, bw); bx = flightEdge + bt / 2; bz = sCZ + off; }
+            else                        { bg = new THREE.BoxGeometry(bt, bh, bw); bx = flightEdge - bt / 2; bz = sCZ + off; }
             const brk = new THREE.Mesh(bg, hwMat);
             brk.position.set(bx, by, bz);
             scene.add(brk);
@@ -9427,8 +9457,7 @@ function init3D() {
         const totalRun = steps * stepRun;
         const horiz    = sSide === 'left' || sSide === 'right';
         const dirSign  = (sSide === 'front' || sSide === 'left') ? -1 : 1;
-        const edge     = sSide === 'front' ? z0 : sSide === 'back' ? z1
-                       : sSide === 'left'  ? x0 : x1;
+        const edge     = flightEdge;
         const padW    = stairWFt;                                         // footing width = stair width
         const bearRun = STRINGER_FOOT_RUN_IN / 12, footDeep = STRINGER_FOOT_DEEP_IN / 12;
         // Center the footing a half-run back from the bottom riser so its FRONT face is
@@ -9477,8 +9506,7 @@ function init3D() {
         const totalRun = steps * stepRun;
         const horiz    = sSide === 'left' || sSide === 'right';
         const dirSign  = (sSide === 'front' || sSide === 'left') ? -1 : 1;
-        const edge     = sSide === 'front' ? z0 : sSide === 'back' ? z1
-                       : sSide === 'left'  ? x0 : x1;
+        const edge     = flightEdge;
         const ang      = Math.atan2(effRiseFt, totalRun);
         const railLen  = Math.sqrt(effRiseFt * effRiseFt + totalRun * totalRun);
         const hrH      = HANDRAIL_HT_IN / 12;
@@ -9522,8 +9550,7 @@ function init3D() {
         const cosAng    = GL.cosAng;
         const horiz     = sSide === 'left' || sSide === 'right';
         const dirSign   = (sSide === 'front' || sSide === 'left') ? -1 : 1;
-        const edge      = sSide === 'front' ? z0 : sSide === 'back' ? z1
-                        : sSide === 'left'  ? x0 : x1;
+        const edge      = flightEdge;
         const rT        = 1.5 / 12;                                 // 2×4 rail (deck rT)
         const postW     = RAIL_POST_ACTUAL_FT;                      // 4×4 newel (deck post)
         const GUARD_FT  = 3;                                        // 36" guard measured above the WALKING SURFACE (tread nosings)
