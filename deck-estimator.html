@@ -320,7 +320,11 @@
     #printViews figure { display:inline-block; width:32%; margin:0 .5%; }
     #printViews img { width:100%; border:1px solid #ccc; }
     #printViews figcaption { text-align:center; font-size:11px; }
+    /* Client-facing PDF: hide per-task labor pricing & the hourly rate; show only hours + the rounded labor subtotal. */
+    .print-hide-cost { display:none !important; }
+    .print-only { display:inline !important; }
   }
+  .print-only { display:none; }   /* hidden on screen; revealed only when printing */
   .cell.stair-entry { background: var(--cell-stair) !important; outline: 2px solid var(--cell-stair-line); outline-offset: -2px; color: rgba(0,0,0,0.62); }
   .cell.no-rail { outline: 2px dashed #ef4444; outline-offset: -2px; }
   .cell.no-rail::after { content: '⌀'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ef4444; font-size: 11px; font-weight: 700; pointer-events: none; }
@@ -1008,6 +1012,8 @@ const PRICE_CATALOG = [
   { cat:'Structural hardware', id:'hw.throughBolt',   item:'Through-bolt ½"×8" HDG (assembly)', unit:'$/ea', price:4.75 },
   { cat:'Structural hardware', id:'hw.hurricaneTie',  item:'Hurricane/seismic tie (H2.5A)', unit:'$/ea', price:0.98, packs:[{n:1,price:0.98},{n:50,price:44.00},{n:100,price:83.00}] },
   { cat:'Structural hardware', id:'hw.connectorNail', item:'Connector nail (10d × 1½" HDG, N10 — hurricane ties)', unit:'$/ea', price:0.09, packs:[{n:110,price:9.98},{n:550,price:42.98}] },
+  { cat:'Structural hardware', id:'material.joistTape',  item:'Joist/beam flashing tape (butyl, 1⅝" × 50 ft roll)', unit:'$/roll', price:19.98, note:'Self-adhesive waterproof barrier over joist & beam tops (Trex Protect / G-Tape style)' },
+  { cat:'Structural hardware', id:'material.flashPaint', item:'Liquid flashing / waterproofing coating (brush-on)', unit:'$/gal', price:49.98, note:'Brush/roll rubberized membrane over joist & beam tops — alt to tape; ~50 sq ft/gal' },
   { cat:'Structural hardware', id:'hw.lateralAnchor', item:'Lateral-load hold-down (DTT2Z)', unit:'$/ea', price:14.48, packs:[{n:1,price:14.48},{n:10,price:129.00}] },
   { cat:'Structural hardware', id:'hw.nail10dLb',     item:'10d HDG common nails',         unit:'$/lb', price:4.98 },
   { cat:'Structural hardware', id:'hw.collatedNail3in', item:'Collated 3" HDG framing nail', unit:'$/ea', price:0.030, packs:[{n:2000,price:59.97}] },
@@ -4928,6 +4934,9 @@ function updateFootingPreview(C, diamIn, depthIn, blockWarn) {
 let POST_CAP_EA     = 16.00;   // Simpson BCS2-3/6Z ZMAX post cap (Home Depot ~2026)
 const POST_CAP_SCREWS = 14;      // SD/10d structural fasteners per cap
 const CONNECTOR_NAILS_PER_TIE = 10;  // 10d×1½" N10 nails to fully nail a hurricane tie (5 per member, H2.5A)
+const FLASH_TAPE_ROLL_FT   = 50;     // butyl joist/beam flashing-tape roll length
+const FLASH_TAPE_WIDTH_IN  = 1.625;  // 1⅝" tape — a beam top needs ⌈beamWidth/this⌉ passes to cover
+const FLASH_PAINT_SQFT_GAL = 50;     // liquid flashing coverage per gallon (one waterproof-membrane coat)
 let LEDGER_FLASH_LF = 1.75;    // continuous corrosion-resistant ledger flashing, per lf (IRC R507.2.4)
 const LATERAL_ANCHORS = 2;       // lateral-load hold-downs per attached deck (IRC R507.9.2)
 
@@ -5962,9 +5971,18 @@ function render() {
   // Per-location price adjustment (1 = chain price; <1 a pro-desk discount, >1 a markup).
   const LOC = getLocation(currentChainKey(), currentStoreKey());
   const locFactor = (LOC && Number.isFinite(LOC.priceFactor) && LOC.priceFactor > 0) ? LOC.priceFactor : 1;
+  // Support blocking under each stair-guard NEWEL — a short PT block in the bay between the
+  // two outer stringers (the newel through-bolts into it), mirroring the deck railing-post
+  // blocking (railingPostPositions → BLOCKING). One block per newel; total newels =
+  // SG.posts × guardSides (guardSides already totals every guarded side across all flights).
+  const stairNewelBlocks = (ST && SG) ? SG.posts * guardSides : 0;
+  const stairBlockBayFt  = ST ? Math.max(0.6, ((ST.maxSpacingIn || 12) - 1.5) / 12) : 0;  // stringer bay = treadOC − stringer thickness
+  const stairBlockBuy    = stairNewelBlocks ? optimizePosts(stairNewelBlocks, stairBlockBayFt, FRAMING_PRICE_LF['2x6']) : { boards: 0, lines: [], cost: 0 };
+  const stairBlockScrews = stairNewelBlocks * 4;   // 4 structural screws/block into the flanking stringers
   const matLumber   = framingMatCost + (R ? R.materialCost : 0) + (ST ? ST.materialCost : 0)
                     + (SG ? SG.materialCost * guardSides : 0) + LAY.materialCost
                     + (BLOCKING ? BLOCKING.addedCost : 0)           // breaker blocking lumber (shortfall past cut-offs)
+                    + stairBlockBuy.cost                            // stair-newel support-blocking lumber
                     + LATERAL.braceLumberCost + hiddenBraceCost;    // knee braces (Table 8) + hidden-fastener bracing
   const matDecking  = DECK.cost;
   // Footing forms/anchors + the single pooled, optimized concrete purchase (the
@@ -5999,16 +6017,46 @@ function render() {
   _hwAdd('nut',          hwPacks('hw.nut'),              H.throughBolts,         H.boltSpec ? H.boltSpec.nutEa : pb('hw.nut'));
   _hwAdd('washer',       hwPacks('hw.washer'),           H.throughBolts * 2,     H.boltSpec ? H.boltSpec.washerEa : pb('hw.washer'));
   _hwAdd('stringerConn', hwPacks('stair.stringerConn'),  ST ? ST.connectors : 0, STRINGER_CONNECTOR_EA);
-  _hwAdd('blockScrew',   hwPacks('hw.blockScrew'),       BLOCKING ? BLOCKING.screwCount : 0, BLOCK_SCREW_EA);
+  _hwAdd('blockScrew',   hwPacks('hw.blockScrew'),       (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews, BLOCK_SCREW_EA);
   _hwAdd('kicker',       hwPacks('stair.kickerScrew'),   LAND ? LAND.kickerScrews : 0, KICKER_SCREW_EA);
   const hwPackPremium = +Object.keys(HWPACK).reduce((s, k) => s + (HWPACK[k].cost - _hwEach[k]), 0).toFixed(2);
 
+  // ── Joist/beam waterproof flashing — both products priced, the cheaper billed ─────
+  // A water barrier over every joist top + beam-to-joist contact sheds water off the
+  // framing and extends deck life. Two products are costed for THIS deck's coverage and
+  // the cheaper one is billed (the other is shown as the alternative):
+  //   • butyl TAPE → joist + beam-line LENGTH (a wide beam top needs ⌈beamW/tapeW⌉ passes),
+  //                  bought in whole 50-ft rolls.
+  //   • liquid COAT → the top-face AREA (jT·joists + beamW·beams), bought in whole gallons.
+  const flashJoistLf = F.joistLf || 0;
+  const flashBeamLf  = beamPlies > 0 ? (F.beamLf || 0) / beamPlies : (F.beamLf || 0);  // beam-LINE run (one top face, not ply-multiplied)
+  const flashBeamWin = beamPlies * 1.5 + 0.25;                                          // beam top width, inches
+  const flashTapeLf  = flashJoistLf + flashBeamLf * Math.max(1, Math.ceil(flashBeamWin / FLASH_TAPE_WIDTH_IN));
+  const flashAreaSf  = (1.5 / 12) * flashJoistLf + (flashBeamWin / 12) * flashBeamLf;
+  const flashRolls   = Math.ceil(flashTapeLf / FLASH_TAPE_ROLL_FT);
+  const flashTapeCost  = +(flashRolls * pb('material.joistTape')).toFixed(2);
+  const flashGal     = Math.ceil(flashAreaSf / FLASH_PAINT_SQFT_GAL);
+  const flashPaintCost = +(flashGal * pb('material.flashPaint')).toFixed(2);
+  const flashTape    = flashTapeCost <= flashPaintCost;                                 // bill the most cost-effective option
+  const flashCost    = (flashJoistLf + flashBeamLf) > 0 ? (flashTape ? flashTapeCost : flashPaintCost) : 0;
+  const FLASH = {
+    cost: flashCost,
+    qty:  flashTape ? flashRolls : flashGal,
+    unit: flashTape ? (flashRolls === 1 ? 'roll' : 'rolls') : 'gal',
+    each: flashTape ? pb('material.joistTape') : pb('material.flashPaint'),
+    label: flashTape
+      ? `Joist/beam waterproof flashing — butyl tape (${flashTapeLf.toFixed(0)} lf incl. beam passes)`
+      : `Joist/beam waterproof flashing — liquid coating (${flashAreaSf.toFixed(0)} sq ft)`,
+    alt:  flashTape ? `liquid-coat alt: ${usd(flashPaintCost)} (${flashGal} gal)` : `butyl-tape alt: ${usd(flashTapeCost)} (${flashRolls}×50′ roll)`,
+  };
+
   const matHardware = DF.cost + H.cost + BPF.cost + (HR ? HR.materialCost * stairFlights : 0)
-                    + (BLOCKING ? BLOCKING.screwCost : 0)           // screws fastening blocking to the joists
+                    + (BLOCKING ? BLOCKING.screwCost : 0)           // deck-blocking screws (loose base)
+                    + stairBlockScrews * BLOCK_SCREW_EA             // stair-newel-block screws loose base (pack round-up is in hwPackPremium)
                     + (LAND ? LAND.kickerScrewCost : 0)             // concrete screws anchoring the kicker plates
                     + LATERAL.braceScrewCost + hiddenBraceScrewCost // brace connection screws (tie hardware is in H.cost)
                     + hwPackPremium;                                // whole-pack round-up over the loose per-each above
-  const matOther    = GV.cost + CN.cost + stainMatCost;
+  const matOther    = GV.cost + CN.cost + stainMatCost + FLASH.cost;   // field-applied consumables + joist/beam flashing
   const matBase     = (matLumber * SF.lumber + matDecking * SF.decking + matConcrete * SF.concrete
                     + matHardware * SF.hardware + matOther * SF.other) * locFactor;
   // Flat truck/bulk delivery, one fee per truckload of lumber & deck boards.
@@ -6165,7 +6213,9 @@ function render() {
   if (HWPACK.nails) addBom('Collated 3&Prime; framing nails — combined purchase (joist laps + beam plies)', _nails, 'nails', HW.collatedNail3in, HWPACK.nails);
   // Breaker blocking: added PT #2 (past cut-offs) + the screws fastening it to joists
   if (BLOCKING && BLOCKING.addedBoards) addBom(`Breaker blocking (${BLOCKING.sizeLabel} PT #2) — ${BLOCKING.stock}&prime;`, BLOCKING.addedBoards, 'pcs', BLOCKING.stock * (FRAMING_PRICE_LF[joistSize] ?? FRAMING_PER_LF));
-  if (BLOCKING && BLOCKING.screwCount) addBom(`Blocking screws (3&Prime; structural, ${BLOCKING.screwsPerBlock}/block)`, BLOCKING.screwCount, 'pcs', BLOCKING.screwEa, HWPACK.blockScrew);
+  const _allBlockScrews = (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews;
+  if (_allBlockScrews) addBom(`Blocking screws (3&Prime; structural — ${[(BLOCKING && BLOCKING.screwCount) ? 'breakers/railing posts' : '', stairBlockScrews ? 'stair newels' : ''].filter(Boolean).join(' + ')})`, _allBlockScrews, 'pcs', BLOCK_SCREW_EA, HWPACK.blockScrew);
+  if (stairNewelBlocks) stairBlockBuy.lines.forEach(l => addBom(`Stair newel blocking (2×6 PT, ${stairBlockBayFt.toFixed(1)}′ ea${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}) — ${l.stock}′ stock`, l.count, 'pcs', l.stock * FRAMING_PRICE_LF['2x6']));
   // Railing — decomposed to match the calculated material cost (rails+infill per
   // purchased lf + material-specific posts + post-mount hardware), NOT a bundled
   // all-in $/lf that diverges from the estimate.
@@ -6179,6 +6229,8 @@ function render() {
   }
   // Field treatment
   addBom('Copper naphthenate (post/footing)', CN.quarts, 'qt', CU_NAP_PRICE_QT);
+  // Joist/beam waterproof flashing — the cheaper of tape vs liquid coating for this deck.
+  if (FLASH.cost) addBom(`${FLASH.label} <span style="color:var(--muted);font-size:11px">· ${FLASH.alt}</span>`, FLASH.qty, FLASH.unit, FLASH.each);
   // Deck finish (separate selector): priced by coverage area
   if (staining) addBom(`Deck finish — ${stain.label} (2 coats)`, sqFt, 'sqft', stain.priceSqft);
   // Stairs — real stock boards cut to size (size × stock length × pieces)
@@ -6381,9 +6433,9 @@ function render() {
     <div class="section-title">Demolition <small style="font-weight:400;color:var(--muted)">— remove existing ${DEMO.sqft} sq ft deck</small></div>
     ${subline(`Tear-off &amp; load-out (${DEMO_HR_PER_SQFT} hr/sq ft)`, `${DEMO.hours} man-hrs`)}
     ${subline(`Roll-off dumpster${DEMO.dumpsters > 1 ? 's' : ''}${DEMO.auto ? ' — cost-optimized mix' : ''}`, `${DEMO.mixLabel} &nbsp;·&nbsp; ${usd(DEMO.dumpsterCost)}`)}
-    ${line('Demo labor', `${DEMO.hours} man-hrs &nbsp; ${usd(DEMO.laborCost)}`, 'cost')}
+    ${line('Demo labor', `${DEMO.hours} man-hrs<span class="print-hide-cost"> &nbsp; ${usd(DEMO.laborCost)}</span>`, 'cost')}
     ${line('Dumpster &amp; disposal', usd(DEMO.dumpsterCost), 'cost')}
-    ${line('Demolition total', usd(DEMO.totalCost), 'cost')}
+    <div class="print-hide-cost">${line('Demolition total', usd(DEMO.totalCost), 'cost')}</div>${/* bundles labor → hidden on the client PDF */''}
     ` : ''}
 
     <div class="section-title">Decking Boards <small style="font-weight:400;color:var(--muted)">— seam-optimized: field + picture-frame + breaker boards</small></div>
@@ -6548,8 +6600,8 @@ function render() {
     ${subline(`Posts (${R.postCount} @ $${R.postEa}/ea)`, usd(R.postMatCost))}
     ${subline(`Post mounting hardware ($${R.postMountEa}/post)`, usd(R.mountMatCost))}
     ${line('Railing material', usd(R.materialCost), 'cost')}
-    ${line(`Install labor (${R.laborHours.toFixed(1)} man-hrs)`, usd(R.laborCost), 'cost')}
-    ${line('Railing total', usd(R.total), 'cost')}
+    ${line(`Install labor (${R.laborHours.toFixed(1)} man-hrs)`, `<span class="print-hide-cost">${usd(R.laborCost)}</span>`, 'cost')}
+    <div class="print-hide-cost">${line('Railing total', usd(R.total), 'cost')}</div>${/* bundles labor → hidden on the client PDF */''}
     ` : ''}
 
     ${ST ? `
@@ -6560,13 +6612,13 @@ function render() {
     ${ST.riserLf ? subline('Risers (1×8 PT)', `${ST.riserBuy.lines.map(l => `${l.count}×${l.stock}′`).join(' + ')} stock`) : ''}
     ${subline(`Stringer-to-joist connectors (LSCZ + ${STRINGER_CONN_SCREWS} SD screws ea)`, `${ST.connectors} connectors / ${ST.connScrews} screws`)}
     ${line('Material cost', usd(ST.materialCost), 'cost')}
-    ${line('Install labor', usd(ST.laborHours * rate), 'cost')}
+    ${line(`Install labor (${ST.laborHours.toFixed(1)} man-hrs)`, `<span class="print-hide-cost">${usd(ST.laborHours * rate)}</span>`, 'cost')}
     ${LAND ? `
     ${subline(`Stringer footing${stairFlights > 1 ? 's' : ''} (concrete, ${LAND.footDeepIn}&Prime; deep × ${LAND.footRunIn}&Prime; run × stair-width — stringers bear, Fairfax Fig 40)`, `${LAND.cf} cf · pooled above`)}
     ${subline('Kicker plates (2×4 PT) — stringers bear & toe-nail', `${LAND.kickerBuy.lines.map(l => `${l.count}×${l.stock}′`).join(' + ')}`)}
     ${subline('Kicker-plate concrete screws (Tapcon ¼&Prime;×2¾&Prime; @ 16&Prime; o.c.)', `${LAND.kickerScrews} pcs &nbsp;·&nbsp; ${usd(LAND.kickerScrewCost)}`)}
     ${line('Landing material (kicker plate)', usd(LAND.materialCost - stairBagCost), 'cost')}
-    ${line(`Landing labor (${LAND.laborHours.toFixed(1)} man-hrs)`, usd(LAND.laborHours * rate), 'cost')}
+    ${line(`Landing labor (${LAND.laborHours.toFixed(1)} man-hrs)`, `<span class="print-hide-cost">${usd(LAND.laborHours * rate)}</span>`, 'cost')}
     ` : ''}
     ${HR ? `
     <div style="margin-top:4px;font-size:11px;color:#f97316">Handrail required — ${ST.steps} risers (&ge; 4): one side @ ${HANDRAIL_HT_IN}&Prime; above nosings</div>
@@ -6574,14 +6626,14 @@ function render() {
     ${HR.posts ? subline(`Handrail newels (4×4 PT, ${HR.postLenFt}′ ea)`, `${HR.posts * stairFlights} posts · ${(HR.postBuy.lines || []).map(l => `${l.count * stairFlights}×${l.stock}′`).join(' + ')} stock`)
                : subline('Rail brackets (mounts to guard)', HR.brackets * stairFlights)}
     ${line('Handrail material', usd(HR.materialCost * stairFlights), 'cost')}
-    ${line(`Handrail labor (${(HR.laborHours * stairFlights).toFixed(1)} man-hrs)`, usd(HR.laborCost * stairFlights), 'cost')}
+    ${line(`Handrail labor (${(HR.laborHours * stairFlights).toFixed(1)} man-hrs)`, `<span class="print-hide-cost">${usd(HR.laborCost * stairFlights)}</span>`, 'cost')}
     ` : ''}
     ${SG ? `
     <div style="margin-top:4px;font-size:11px;color:#f97316">Stair railing (guard) required — deck is ${heightIn}&Prime; above grade (&gt; 36&Prime;) · matches deck railing · runs ${SG.angleDeg}° parallel to the stringers${guardSides < 2 * stairFlights ? ' · skips house-side runs' : ''}</div>
     ${subline(`${SG.type} stair railing, ${guardSides} run${guardSides === 1 ? '' : 's'} @ $${SG.priceLf}/lf · ${SG.angleDeg}° incline`, `${Math.round(SG.guardLf * guardSides)} lf`)}
     ${subline(`Stair railing posts${SG.woodPost ? ` (4×4 PT, ${SG.postLenFt}′ ea)` : ` (${SG.type})`}`, SG.woodPost ? `${SG.posts * guardSides} posts · ${(SG.postBuy.lines || []).map(l => `${l.count * guardSides}×${l.stock}′`).join(' + ')} stock` : `${SG.posts * guardSides} posts`)}
     ${line('Stair railing material', usd(SG.materialCost * guardSides), 'cost')}
-    ${line(`Stair railing labor (${(SG.laborHours * guardSides).toFixed(1)} man-hrs)`, usd(SG.laborCost * guardSides), 'cost')}
+    ${line(`Stair railing labor (${(SG.laborHours * guardSides).toFixed(1)} man-hrs)`, `<span class="print-hide-cost">${usd(SG.laborCost * guardSides)}</span>`, 'cost')}
     ` : ''}
     ` : ''}
 
@@ -6615,18 +6667,18 @@ function render() {
     <div class="subtotal"><span>Materials Subtotal</span><span>${usd(matTotal)}</span></div>
 
     <div class="section-title">Labor Breakdown</div>
-    ${L.tasks.map(t => line(t.name, `${t.hours.toFixed(1)} man-hrs &nbsp; ${usd(t.cost)}`, 'cost')).join('')}
-    ${L.augerCost ? line('Power auger rental (equipment)', `— &nbsp; ${usd(L.augerCost)}`, 'cost') : ''}
-    ${line('Gravel spread (wheelbarrow + rake)', `${GV.hours.toFixed(1)} man-hrs &nbsp; ${usd(GV.hours * rate)}`, 'cost')}
-    ${ST ? line(`Stair install${stairFlights > 1 ? ` ×${stairFlights}` : ''}`, `${ST.laborHours.toFixed(1)} man-hrs &nbsp; ${usd(ST.laborHours * rate)}`, 'cost') : ''}
-    ${LAND ? line('Stringer footings (form + pour)', `${LAND.laborHours.toFixed(1)} man-hrs &nbsp; ${usd(LAND.laborHours * rate)}`, 'cost') : ''}
-    ${HR ? line('Stair handrail install', `${(HR.laborHours * stairFlights).toFixed(1)} man-hrs &nbsp; ${usd(HR.laborCost * stairFlights)}`, 'cost') : ''}
-    ${SG ? line('Stair guard install', `${(SG.laborHours * guardSides).toFixed(1)} man-hrs &nbsp; ${usd(SG.laborCost * guardSides)}`, 'cost') : ''}
-    ${R  ? line('Railing install', `${R.laborHours.toFixed(1)} man-hrs &nbsp; ${usd(R.laborCost)}`, 'cost') : ''}
+    ${L.tasks.map(t => line(t.name, `${t.hours.toFixed(1)} man-hrs<span class="print-hide-cost"> &nbsp; ${usd(t.cost)}</span>`, 'cost')).join('')}
+    ${L.augerCost ? line('Power auger rental (equipment)', `<span class="print-hide-cost">${usd(L.augerCost)}</span>`, 'cost') : ''}
+    ${line('Gravel spread (wheelbarrow + rake)', `${GV.hours.toFixed(1)} man-hrs<span class="print-hide-cost"> &nbsp; ${usd(GV.hours * rate)}</span>`, 'cost')}
+    ${ST ? line(`Stair install${stairFlights > 1 ? ` ×${stairFlights}` : ''}`, `${ST.laborHours.toFixed(1)} man-hrs<span class="print-hide-cost"> &nbsp; ${usd(ST.laborHours * rate)}</span>`, 'cost') : ''}
+    ${LAND ? line('Stringer footings (form + pour)', `${LAND.laborHours.toFixed(1)} man-hrs<span class="print-hide-cost"> &nbsp; ${usd(LAND.laborHours * rate)}</span>`, 'cost') : ''}
+    ${HR ? line('Stair handrail install', `${(HR.laborHours * stairFlights).toFixed(1)} man-hrs<span class="print-hide-cost"> &nbsp; ${usd(HR.laborCost * stairFlights)}</span>`, 'cost') : ''}
+    ${SG ? line('Stair guard install', `${(SG.laborHours * guardSides).toFixed(1)} man-hrs<span class="print-hide-cost"> &nbsp; ${usd(SG.laborCost * guardSides)}</span>`, 'cost') : ''}
+    ${R  ? line('Railing install', `${R.laborHours.toFixed(1)} man-hrs<span class="print-hide-cost"> &nbsp; ${usd(R.laborCost)}</span>`, 'cost') : ''}
     <hr class="divider">
     <div class="subtotal">
-      <span>Labor Subtotal &nbsp;<small style="color:var(--muted);font-weight:400">(@ ${usd(rate)}/hr/person)</small></span>
-      <span>${usd(laborTotal)}</span>
+      <span>Labor Subtotal<span class="print-hide-cost"> &nbsp;<small style="color:var(--muted);font-weight:400">(@ ${usd(rate)}/hr/person)</small></span></span>
+      <span><span class="print-hide-cost">${usd(laborTotal)}</span><span class="print-only">${usd(Math.ceil(laborTotal / 1000) * 1000)}</span></span>
     </div>
     <div style="margin:6px 0 0;display:flex;justify-content:space-between;font-size:13px;color:var(--muted)">
       <span>Est. time to complete &nbsp;<small>(${SCHED.crew}-person crew · ${WORK_HOURS_PER_DAY} hr/day · ${WORK_DAYS_PER_WEEK} day/wk)</small></span>
@@ -6637,7 +6689,7 @@ function render() {
     <div class="subtotal" style="font-weight:400"><span>Sales tax <small style="color:var(--muted)">(<span id="salesTaxSlot"></span><span style="margin-left:1px">% on materials${delivery ? ' + delivery' : ''}</span>)</small></span><span>${usd(salesTax)}</span></div>
     <div class="grand-total">
       <span class="gt-label">GRAND TOTAL</span>
-      <span class="gt-val">${usd(grandTotal)}</span>
+      <span class="gt-val"><span class="print-hide-cost">${usd(grandTotal)}</span><span class="print-only">${usd(grandTotal - laborTotal + Math.ceil(laborTotal / 1000) * 1000)}</span></span>
     </div>
     <button class="print-btn" style="background:var(--button-primary-bg);margin-top:.5rem" onclick="open3DPreview()">3D Preview</button>
     <button class="print-btn" onclick="printDeck()">Print / Save as PDF</button>
@@ -9732,6 +9784,29 @@ function init3D() {
             gp.position.set(horiz ? along : acrossPos, rakeY(d) + pH / 2, horiz ? acrossPos : along);
             scene.add(gp);
           });
+          // Support BLOCKING under each newel — a short PT block in the bay between the two
+          // OUTER stringers (the newel through-bolts into it), mirroring the deck railing-post
+          // blocking. Count == the BOM's stairNewelBlocks (SG.posts × guardSides).
+          {
+            const sThkB = 1.5 / 12;
+            const spB = SPECIES[+document.getElementById('species').value] ?? SPECIES[0];
+            const treadOCb = spB.treadOC ?? (/composite|timbertech|azek|pvc/i.test(spB.label) ? 12 : 16);
+            const nStrB = Math.ceil((stairWFt * 12) / treadOCb) + 1;
+            const ocStrB = nStrB > 1 ? (stairWFt - sThkB) / (nStrB - 1) : Math.max(0.1, stairWFt - sThkB);
+            const blkAcross = so * (stairWFt / 2 - sThkB / 2) - so * ocStrB / 2;   // centre of the outer stringer bay
+            const blkLen = Math.max(0.1, ocStrB - sThkB);                          // spans the bay BETWEEN the two stringers
+            const blkThk = sThkB, blkDepth = 5.5 / 12;                             // 2×6 laid FLAT (1½" thick, 5½" run depth) — like the deck post block
+            postDs.forEach(d => {
+              const along = edge + dirSign * d, acrossB = (horiz ? sCZ : sCX) + blkAcross;
+              // Long axis ACROSS the bay; thin (blkThk) vertical and 5½" deep along the run — then
+              // RAKED to the stringer pitch (same rotation the rails use) so it lies flush in the bay.
+              const geo = horiz ? new THREE.BoxGeometry(blkDepth, blkThk, blkLen) : new THREE.BoxGeometry(blkLen, blkThk, blkDepth);
+              const bm = new THREE.Mesh(geo, frameMat);
+              bm.position.set(horiz ? along : acrossB, rakeY(d) - blkThk / 2 - 0.02, horiz ? acrossB : along);
+              if (horiz) bm.rotation.z = -dirSign * ang; else bm.rotation.x = dirSign * ang;
+              scene.add(bm);
+            });
+          }
         });
       }
     }
