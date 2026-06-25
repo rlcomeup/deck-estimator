@@ -1002,29 +1002,30 @@ const PRICE_CATALOG = [
   { cat:'Post anchors', id:'anchor.epoxy',    item:'Epoxy anchor rod',                 unit:'$/ea',  price:18.00 },
   // ── Structural hardware ───────────────────────────────────────────
   { cat:'Structural hardware', id:'hw.screwsPerLb',   item:'Structural/deck screws (by weight)', unit:'$/lb', price:5.50 },
-  { cat:'Structural hardware', id:'hw.joistHanger',   item:'Joist hanger (Simpson LUS)',   unit:'$/ea', price:1.77 },
-  { cat:'Structural hardware', id:'hw.postBase',      item:'Post base (ABA66Z, 6×6)',      unit:'$/ea', price:26.98 },
-  { cat:'Structural hardware', id:'hw.ledgerBolt',    item:'Ledger bolt (½" lag/structural)', unit:'$/ea', price:2.75 },
+  { cat:'Structural hardware', id:'hw.joistHanger',   item:'Joist hanger (Simpson LUS)',   unit:'$/ea', price:1.77, packs:[{n:1,price:1.77},{n:25,price:39.00}] },
+  { cat:'Structural hardware', id:'hw.postBase',      item:'Post base (ABA66Z, 6×6)',      unit:'$/ea', price:26.98, packs:[{n:1,price:26.98}] },
+  { cat:'Structural hardware', id:'hw.ledgerBolt',    item:'Ledger bolt (½" lag/structural)', unit:'$/ea', price:2.75, packs:[{n:1,price:2.75},{n:25,price:59.00}] },
   { cat:'Structural hardware', id:'hw.throughBolt',   item:'Through-bolt ½"×8" HDG (assembly)', unit:'$/ea', price:4.75 },
-  { cat:'Structural hardware', id:'hw.hurricaneTie',  item:'Hurricane/seismic tie (H2.5A)', unit:'$/ea', price:0.98 },
-  { cat:'Structural hardware', id:'hw.lateralAnchor', item:'Lateral-load hold-down (DTT2Z)', unit:'$/ea', price:14.48 },
+  { cat:'Structural hardware', id:'hw.hurricaneTie',  item:'Hurricane/seismic tie (H2.5A)', unit:'$/ea', price:0.98, packs:[{n:1,price:0.98},{n:50,price:44.00},{n:100,price:83.00}] },
+  { cat:'Structural hardware', id:'hw.connectorNail', item:'Connector nail (10d × 1½" HDG, N10 — hurricane ties)', unit:'$/ea', price:0.09, packs:[{n:110,price:9.98},{n:550,price:42.98}] },
+  { cat:'Structural hardware', id:'hw.lateralAnchor', item:'Lateral-load hold-down (DTT2Z)', unit:'$/ea', price:14.48, packs:[{n:1,price:14.48},{n:10,price:129.00}] },
   { cat:'Structural hardware', id:'hw.nail10dLb',     item:'10d HDG common nails',         unit:'$/lb', price:4.98 },
-  { cat:'Structural hardware', id:'hw.collatedNail3in', item:'Collated 3" HDG framing nail', unit:'$/ea', price:0.030 },
-  { cat:'Structural hardware', id:'hw.postCap',       item:'Post cap (BCS2-3/6Z)',         unit:'$/ea', price:16.00 },
-  { cat:'Structural hardware', id:'hw.tensionTie',    item:'Knee-brace tension tie (DTT1Z)', unit:'$/ea', price:18.50 },
+  { cat:'Structural hardware', id:'hw.collatedNail3in', item:'Collated 3" HDG framing nail', unit:'$/ea', price:0.030, packs:[{n:2000,price:59.97}] },
+  { cat:'Structural hardware', id:'hw.postCap',       item:'Post cap (BCS2-3/6Z)',         unit:'$/ea', price:16.00, packs:[{n:1,price:16.00}] },
+  { cat:'Structural hardware', id:'hw.tensionTie',    item:'Knee-brace tension tie (DTT1Z)', unit:'$/ea', price:18.50, packs:[{n:1,price:18.50}] },
   { cat:'Structural hardware', id:'hw.ledgerFlash',   item:'Ledger flashing (corrosion-resistant)', unit:'$/lf', price:1.75 },
-  { cat:'Structural hardware', id:'hw.blockScrew',    item:'Blocking screw',               unit:'$/ea', price:0.13 },
+  { cat:'Structural hardware', id:'hw.blockScrew',    item:'Blocking screw',               unit:'$/ea', price:0.13, packs:[{n:75,price:9.97},{n:340,price:33.97},{n:1750,price:134.97}] },
   { cat:'Structural hardware', id:'hw.boltBase',      item:'½" HDG hex bolt (base price)', unit:'$/ea', price:1.10 },
   { cat:'Structural hardware', id:'hw.boltPerIn',     item:'½" HDG hex bolt (per inch)',   unit:'$/in', price:0.36 },
-  { cat:'Structural hardware', id:'hw.nut',           item:'½" HDG hex nut',               unit:'$/ea', price:0.34 },
-  { cat:'Structural hardware', id:'hw.washer',        item:'½" HDG flat washer',           unit:'$/ea', price:0.24 },
+  { cat:'Structural hardware', id:'hw.nut',           item:'½" HDG hex nut',               unit:'$/ea', price:0.34, packs:[{n:1,price:0.34},{n:50,price:13.98}] },
+  { cat:'Structural hardware', id:'hw.washer',        item:'½" HDG flat washer',           unit:'$/ea', price:0.24, packs:[{n:1,price:0.24},{n:50,price:8.98}] },
   // ── Stairs hardware ───────────────────────────────────────────────
-  { cat:'Stairs hardware', id:'stair.stringerConn',   item:'Stringer connector (LSCZ)',    unit:'$/ea', price:6.47 },
-  { cat:'Stairs hardware', id:'stair.sdScrew',        item:'SD structural screw (#9 × 1½")', unit:'$/ea', price:0.18 },
-  { cat:'Stairs hardware', id:'stair.wedgeAnchor',    item:'½"×3¾" wedge anchor',          unit:'$/ea', price:2.35 },
+  { cat:'Stairs hardware', id:'stair.stringerConn',   item:'Stringer connector (LSCZ)',    unit:'$/ea', price:6.47, packs:[{n:1,price:6.47},{n:10,price:58.00}] },
+  { cat:'Stairs hardware', id:'stair.sdScrew',        item:'SD structural screw (#9 × 1½")', unit:'$/ea', price:0.18, packs:[{n:100,price:17.98},{n:500,price:79.98}] },
+  { cat:'Stairs hardware', id:'stair.wedgeAnchor',    item:'½"×3¾" wedge anchor',          unit:'$/ea', price:2.35, packs:[{n:1,price:2.35},{n:25,price:52.00}] },
   { cat:'Stairs hardware', id:'stair.landingMesh',    item:'6×6 wire mesh (landing slab)', unit:'$/sqft', price:0.55 },
-  { cat:'Stairs hardware', id:'stair.handrailBracket', item:'Stair handrail bracket',      unit:'$/ea', price:6.98 },
-  { cat:'Stairs hardware', id:'stair.kickerScrew',    item:'Concrete screw — kicker plate (Tapcon ¼"×2¾")', unit:'$/ea', price:0.47, note:'Anchors the PT kicker plate to the stringer footing · Home Depot Tapcon hex-washer #24330, 75-pc ≈ $34.97; Lowe\'s stocks the equivalent' },
+  { cat:'Stairs hardware', id:'stair.handrailBracket', item:'Stair handrail bracket',      unit:'$/ea', price:6.98, packs:[{n:1,price:6.98}] },
+  { cat:'Stairs hardware', id:'stair.kickerScrew',    item:'Concrete screw — kicker plate (Tapcon ¼"×2¾")', unit:'$/ea', price:0.47, packs:[{n:75,price:34.97},{n:175,price:69.97}], note:'Anchors the PT kicker plate to the stringer footing · Home Depot Tapcon hex-washer #24330, 75-pc ≈ $34.97; Lowe\'s stocks the equivalent' },
   // ── Sitework, demo & consumables ──────────────────────────────────
   { cat:'Sitework & demo', id:'gravel.ton',        item:'#57 crushed stone',             unit:'$/ton',  price:52.00 },
   { cat:'Sitework & demo', id:'gravel.delivery',   item:'Stone delivery (tandem load)',  unit:'$/load', price:150.00 },
@@ -1212,6 +1213,62 @@ function pb(id) {
   return e.price;
 }
 
+// ─── Cheapest-pack hardware purchasing ──────────────────────────────────
+// Count-based hardware (screws, nails, ties, connectors) is bought in whole
+// retail PACKS, not loose: bill the cheapest COMBINATION of packs that covers
+// the need, rounded UP — leftovers are real, not waste. `packs = [{n, price}]`
+// (n units per pack); include an {n:1} tier where the item is also sold loose.
+// This is the hardware analogue of the lumber stock-length optimizer (optimizeRun).
+function cheapestPackBuy(packs, qty) {
+  qty = Math.max(0, Math.round(qty || 0));
+  const ps = (packs || []).filter(p => p && p.n > 0 && p.price >= 0).sort((a, b) => a.n - b.n);
+  if (!qty || !ps.length) return { cost: 0, bought: 0, leftover: 0, lines: [] };
+  // The cheapest per-unit pack covers the bulk; DP only a bounded remainder window, so a
+  // huge count (thousands of screws) stays fast yet still finds the exact cheapest tail.
+  const best = ps.reduce((a, b) => (b.price / b.n < a.price / a.n ? b : a));
+  const CAP = 4000;
+  let preCount = 0, target = qty;
+  if (qty > CAP) { preCount = Math.floor((qty - CAP) / best.n); target = qty - preCount * best.n; }
+  const dp = new Array(target + 1).fill(null);
+  dp[0] = { cost: 0, from: -1, pack: null };
+  for (let i = 1; i <= target; i++) for (const p of ps) {
+    const j = Math.max(0, i - p.n);
+    if (dp[j] == null) continue;
+    const c = dp[j].cost + p.price;
+    if (dp[i] == null || c < dp[i].cost - 1e-9) dp[i] = { cost: c, from: j, pack: p };
+  }
+  const counts = new Map();
+  if (preCount > 0) counts.set(best, preCount);
+  let bought = preCount * best.n, i = target;
+  while (i > 0 && dp[i]) { const p = dp[i].pack; counts.set(p, (counts.get(p) || 0) + 1); bought += p.n; i = dp[i].from; }
+  const lines = [...counts.entries()].filter(([, c]) => c > 0)
+    .map(([p, c]) => ({ n: p.n, price: p.price, count: c })).sort((a, b) => b.n - a.n);
+  const cost = +lines.reduce((s, l) => s + l.count * l.price, 0).toFixed(2);
+  return { cost, bought, leftover: bought - qty, lines };
+}
+// Packs for a catalog item, with the loose {n:1} tier synced to the CURRENT each-price
+// (so editing the Price Book each-price flows straight through to the optimizer).
+function hwPacks(id) {
+  const e = _priceIndex[id];
+  if (!e || !e.packs || !e.packs.length) return null;
+  const each = pb(id);
+  return e.packs.map(p => (p.n === 1 ? { n: 1, price: each } : { n: p.n, price: p.price }));
+}
+// Cheapest-pack buy for a catalog hardware id; falls back to loose qty×each when the
+// item has no packs (e.g. à-la-carte length-priced bolts).
+function hwBuy(id, qty) {
+  const packs = hwPacks(id);
+  if (packs) return cheapestPackBuy(packs, qty);
+  const q = Math.max(0, Math.round(qty || 0));
+  return { cost: +(q * pb(id)).toFixed(2), bought: q, leftover: 0, lines: [] };
+}
+// One-line human summary of a pack purchase, e.g. "1×100-pk + 1×50-pk · 16 leftover".
+function packSummary(buy) {
+  if (!buy || !buy.lines || !buy.lines.length) return '';
+  const parts = buy.lines.map(l => `${l.count}×${l.n === 1 ? 'ea' : l.n + '-pk'}`);
+  return parts.join(' + ') + (buy.leftover > 0 ? ` · ${buy.leftover} leftover` : '');
+}
+
 // ─── Per-store stock availability ───────────────────────────────────
 // Whether a material is on the shelf at the chosen store. User-maintained
 // per store in the Price Book; the estimator reads it so it never specs a
@@ -1374,14 +1431,14 @@ const SPECIES = [
 //   • TimberTech CORTEX — color-matched screw + plug for square-edge, 100-lf kit ≈ $34.98 → ~$0.32, 2/joist (hidden by plug)
 //   • TimberTech TOPLoc — color-matched stainless face screw (AZEK/PVC), 350 ct ≈ $74.98 → ~$0.21, 2/joist
 const DECK_FASTENERS = [
-  { label: 'Coated deck screws (#9 × 2½")',       price: 0.10, perJoist: 2, hidden: false },
-  { label: 'Star-drive composite screws',         price: 0.13, perJoist: 2, hidden: false },
-  { label: 'Stainless-steel screws (#8 × 2½")',   price: 0.28, perJoist: 2, hidden: false },
-  { label: 'Hidden fasteners — clips',            price: 0.42, perJoist: 1, hidden: true  },
-  { label: 'CAMO edge screws (hidden)',           price: 0.14, perJoist: 1, hidden: true  },
-  { label: 'TimberTech CONCEALoc hidden clips',   price: 0.50, perJoist: 1, hidden: true  },
-  { label: 'TimberTech CORTEX screws + plugs',    price: 0.32, perJoist: 2, hidden: true  },
-  { label: 'TimberTech TOPLoc color face screws', price: 0.21, perJoist: 2, hidden: false },
+  { label: 'Coated deck screws (#9 × 2½")',       price: 0.10, perJoist: 2, hidden: false, packs:[{n:75,price:9.97},{n:340,price:33.97},{n:1750,price:134.97}] },
+  { label: 'Star-drive composite screws',         price: 0.13, perJoist: 2, hidden: false, packs:[{n:75,price:11.97},{n:350,price:44.98}] },
+  { label: 'Stainless-steel screws (#8 × 2½")',   price: 0.28, perJoist: 2, hidden: false, packs:[{n:90,price:24.98},{n:350,price:89.00}] },
+  { label: 'Hidden fasteners — clips',            price: 0.42, perJoist: 1, hidden: true,  packs:[{n:90,price:37.98}] },
+  { label: 'CAMO edge screws (hidden)',           price: 0.14, perJoist: 1, hidden: true,  packs:[{n:350,price:48.00},{n:700,price:96.00}] },
+  { label: 'TimberTech CONCEALoc hidden clips',   price: 0.50, perJoist: 1, hidden: true,  packs:[{n:90,price:44.98}] },
+  { label: 'TimberTech CORTEX screws + plugs',    price: 0.32, perJoist: 2, hidden: true,  packs:[{n:100,price:34.98}] },
+  { label: 'TimberTech TOPLoc color face screws', price: 0.21, perJoist: 2, hidden: false, packs:[{n:350,price:74.98}] },
 ];
 // Field-applied deck finishes, by coverage area: material $/sqft + labor hr/sqft
 // (2 coats brush/roll). Index 0 = unfinished. Composite is never stained.
@@ -4870,6 +4927,7 @@ function updateFootingPreview(C, diamIn, depthIn, blockWarn) {
 // through-bolts at the post in that case.
 let POST_CAP_EA     = 16.00;   // Simpson BCS2-3/6Z ZMAX post cap (Home Depot ~2026)
 const POST_CAP_SCREWS = 14;      // SD/10d structural fasteners per cap
+const CONNECTOR_NAILS_PER_TIE = 10;  // 10d×1½" N10 nails to fully nail a hurricane tie (5 per member, H2.5A)
 let LEDGER_FLASH_LF = 1.75;    // continuous corrosion-resistant ledger flashing, per lf (IRC R507.2.4)
 const LATERAL_ANCHORS = 2;       // lateral-load hold-downs per attached deck (IRC R507.9.2)
 
@@ -4913,6 +4971,11 @@ function calcHardware(sqFt, joists, posts, ledgerLf, freestanding = false, beamS
   // The ledger end of an attached deck is a hanger (counted above), not a tie, and a
   // freestanding joist bears only on beams — so the bearing count covers both.
   const hurricaneTies = Math.max(joists, beamBearings) + joistLaps + compJoistTies;
+  // Each hurricane tie is hand-nailed with 10 connector nails (Simpson N10 10d×1½" HDG —
+  // 5 into the joist + 5 into the beam, per H2.5A). Billed as a separate fastener; the
+  // estimate's pack optimizer buys the total in the cheapest whole-pack combination.
+  const tieNails    = hurricaneTies * CONNECTOR_NAILS_PER_TIE;
+  const tieNailCost = +(tieNails * pb('hw.connectorNail')).toFixed(2);
   // Lateral-load tension ties. When a TABLE 8 override is supplied it carries the
   // Fairfax count (Method 1 = 4 ties, ≥750 lb) and per-tie price; otherwise the
   // legacy IRC R507.9.2 baseline of two DTT2Z hold-downs on an attached deck.
@@ -4927,10 +4990,10 @@ function calcHardware(sqFt, joists, posts, ledgerLf, freestanding = false, beamS
   const cost = hangers * HW.joistHanger +
                bases * HW.postBase + ledgerBolts * ledgerEa +
                boltCost + capCost + hurricaneTies * HW.hurricaneTie +
-               lapNailCost + lateralCost + flashingCost;
+               lapNailCost + lateralCost + flashingCost + tieNailCost;
   return { hangers, bases, ledgerBolts, ledgerEa, ledgerLabel, throughBolts, spliceBolts, boltSpec, boltCost,
            postCaps, postCapScrews, capCost, useCaps,
-           hurricaneTies, joistLaps, lapNails, lapNailCost,
+           hurricaneTies, tieNails, tieNailCost, joistLaps, lapNails, lapNailCost,
            lateralAnchors, lateralEa, lateralLabel, lateralCost, flashingLf, flashingCost, cost };
 }
 
@@ -5907,10 +5970,44 @@ function render() {
   // Footing forms/anchors + the single pooled, optimized concrete purchase (the
   // per-group bag costs are removed and replaced by CONC.cost).
   const matConcrete = (C.cost - deckBagCost) + (LAND ? LAND.materialCost - stairBagCost : 0) + CONC.cost;
+  // ── Cheapest-pack hardware purchasing ──────────────────────────────────────
+  // Count-based fasteners are bought in whole retail PACKS (PRICE_CATALOG/DECK_FASTENERS
+  // `packs`), choosing the cheapest combination that covers the need (cheapestPackBuy).
+  // Identical fasteners used in several places are POOLED so ONE box covers them all:
+  // collated 3" nails (joist laps + beam plies) and SD #9×1½" screws (stair connectors +
+  // post caps + knee braces). The whole-pack ROUND-UP premium over the loose per-each
+  // price (`hwPackPremium`) is added to the hardware total; the BOM lines below re-price
+  // at their pack cost from the shared `HWPACK`. Leftovers are real stock, not waste.
+  const _sdScrews = (H.postCapScrews || 0) + (LATERAL.braceScrews || 0) + (hiddenBraceScrews || 0) + (ST ? ST.connScrews : 0);
+  const _nails    = (H.lapNails || 0) + (BPF.nails || 0);
+  const HWPACK = {};                                  // key → cheapestPackBuy result (shared with the BOM)
+  const _hwEach = {};                                 // key → loose qty×each baseline the pack cost replaces
+  const _hwAdd = (key, packs, qty, eachPrice) => {
+    qty = Math.round(qty || 0);
+    if (qty <= 0 || !packs || !packs.length) return;
+    HWPACK[key]  = cheapestPackBuy(packs, qty);
+    _hwEach[key] = +(qty * eachPrice).toFixed(2);
+  };
+  _hwAdd('deckFast',     deckFastener.packs,             DF.count,               deckFastener.price);
+  _hwAdd('nails',        hwPacks('hw.collatedNail3in'),  _nails,                 HW.collatedNail3in);
+  _hwAdd('sdScrew',      hwPacks('stair.sdScrew'),       _sdScrews,              SD_SCREW_EA);
+  _hwAdd('hurricane',    hwPacks('hw.hurricaneTie'),     H.hurricaneTies,        HW.hurricaneTie);
+  _hwAdd('connNail',     hwPacks('hw.connectorNail'),    H.tieNails,             pb('hw.connectorNail'));
+  _hwAdd('hangers',      hwPacks('hw.joistHanger'),      H.hangers,              HW.joistHanger);
+  _hwAdd('postBase',     hwPacks('hw.postBase'),         H.bases,                HW.postBase);
+  _hwAdd('postCap',      hwPacks('hw.postCap'),          H.postCaps,             POST_CAP_EA);
+  _hwAdd('nut',          hwPacks('hw.nut'),              H.throughBolts,         H.boltSpec ? H.boltSpec.nutEa : pb('hw.nut'));
+  _hwAdd('washer',       hwPacks('hw.washer'),           H.throughBolts * 2,     H.boltSpec ? H.boltSpec.washerEa : pb('hw.washer'));
+  _hwAdd('stringerConn', hwPacks('stair.stringerConn'),  ST ? ST.connectors : 0, STRINGER_CONNECTOR_EA);
+  _hwAdd('blockScrew',   hwPacks('hw.blockScrew'),       BLOCKING ? BLOCKING.screwCount : 0, BLOCK_SCREW_EA);
+  _hwAdd('kicker',       hwPacks('stair.kickerScrew'),   LAND ? LAND.kickerScrews : 0, KICKER_SCREW_EA);
+  const hwPackPremium = +Object.keys(HWPACK).reduce((s, k) => s + (HWPACK[k].cost - _hwEach[k]), 0).toFixed(2);
+
   const matHardware = DF.cost + H.cost + BPF.cost + (HR ? HR.materialCost * stairFlights : 0)
                     + (BLOCKING ? BLOCKING.screwCost : 0)           // screws fastening blocking to the joists
                     + (LAND ? LAND.kickerScrewCost : 0)             // concrete screws anchoring the kicker plates
-                    + LATERAL.braceScrewCost + hiddenBraceScrewCost; // brace connection screws (tie hardware is in H.cost)
+                    + LATERAL.braceScrewCost + hiddenBraceScrewCost // brace connection screws (tie hardware is in H.cost)
+                    + hwPackPremium;                                // whole-pack round-up over the loose per-each above
   const matOther    = GV.cost + CN.cost + stainMatCost;
   const matBase     = (matLumber * SF.lumber + matDecking * SF.decking + matConcrete * SF.concrete
                     + matHardware * SF.hardware + matOther * SF.other) * locFactor;
@@ -5970,8 +6067,10 @@ function render() {
 
   // ── Bill of Materials: every material/hardware item with unit pricing ──
   const bom = [];
-  const addBom = (item, qty, unit, unitPrice) =>
-    bom.push({ item, qty, unit, unitPrice, total: qty * unitPrice });
+  // `buy` (optional) = a cheapestPackBuy result: the line is then priced at the whole-pack
+  // cost (buy.cost) instead of qty×unitPrice, and carries the pack breakdown for display.
+  const addBom = (item, qty, unit, unitPrice, buy) =>
+    bom.push({ item, qty, unit, unitPrice, total: buy ? +(+buy.cost).toFixed(2) : qty * unitPrice, buy: buy || null });
   // Lumber from the optimized purchase list (per stock length).
   // Joist/beam rows carry their category's cut-waste percentage.
   LUMBER.forEach(it => {
@@ -6024,39 +6123,49 @@ function render() {
   // Demolition disposal (existing-deck removal) — one row per dumpster size in the mix
   if (DEMO) Object.keys(DEMO.mix).map(Number).sort((a, b) => b - a).forEach(yd =>
     addBom(`Roll-off dumpster (${yd}-yd, demo disposal)`, DEMO.mix[yd], 'pcs', DUMPSTERS[yd].price));
-  // Hardware & fasteners
-  addBom(`Deck-board fasteners — ${DF.label} (${DF.perJoist}/joist)`, DF.count, 'pcs', DF.price);
-  if (H.hangers)     addBom('Joist hangers (ledger end)', H.hangers, 'pcs', HW.joistHanger);
-  if (H.bases)       addBom('Post bases (ABA66Z)', H.bases, 'pcs', HW.postBase);
+  // Hardware & fasteners — count-based items are priced at their cheapest-pack cost
+  // (HWPACK, computed above). Identical screws/nails used in several places are POOLED
+  // into one purchase: _sdBuy/_nailBuy hand the full pack cost to the FIRST line that
+  // uses them and a 0-cost "pooled" marker to the rest (so the total is counted once).
+  // Each use-line of a pooled fastener is shown at $0 with a "pooled" marker; the pool's
+  // single whole-pack purchase is its OWN combined line (added after the use-lines).
+  const _sdBuy   = () => HWPACK.sdScrew ? { cost: 0, lines: [], pooled: 'SD #9 screw' } : null;
+  const _nailBuy = () => HWPACK.nails   ? { cost: 0, lines: [], pooled: '3″ nail' }    : null;
+  addBom(`Deck-board fasteners — ${DF.label} (${DF.perJoist}/joist)`, DF.count, 'pcs', DF.price, HWPACK.deckFast);
+  if (H.hangers)     addBom('Joist hangers (ledger end)', H.hangers, 'pcs', HW.joistHanger, HWPACK.hangers);
+  if (H.bases)       addBom('Post bases (ABA66Z)', H.bases, 'pcs', HW.postBase, HWPACK.postBase);
   if (H.ledgerBolts) addBom(H.ledgerLabel, H.ledgerBolts, 'pcs', H.ledgerEa);
   if (H.throughBolts) {
     addBom(`Thru-bolts (&frac12;&Prime; × ${H.boltSpec.lenIn}&Prime; HDG hex)`, H.throughBolts, 'pcs', H.boltSpec.boltEa);
-    addBom('&frac12;&Prime; HDG hex nuts (thru-bolts)', H.throughBolts, 'pcs', H.boltSpec.nutEa);
-    addBom('&frac12;&Prime; HDG flat washers (thru-bolts, 2 ea)', H.throughBolts * 2, 'pcs', H.boltSpec.washerEa);
+    addBom('&frac12;&Prime; HDG hex nuts (thru-bolts)', H.throughBolts, 'pcs', H.boltSpec.nutEa, HWPACK.nut);
+    addBom('&frac12;&Prime; HDG flat washers (thru-bolts, 2 ea)', H.throughBolts * 2, 'pcs', H.boltSpec.washerEa, HWPACK.washer);
   }
   if (H.postCaps) {
-    addBom('Beam post caps (Simpson BCS2-3/6Z — 3-ply beam on 6× post)', H.postCaps, 'pcs', POST_CAP_EA);
-    addBom(`Post-cap structural screws (${POST_CAP_SCREWS}/cap)`, H.postCapScrews, 'pcs', SD_SCREW_EA);
+    addBom('Beam post caps (Simpson BCS2-3/6Z — 3-ply beam on 6× post)', H.postCaps, 'pcs', POST_CAP_EA, HWPACK.postCap);
+    addBom(`Post-cap structural screws (${POST_CAP_SCREWS}/cap)`, H.postCapScrews, 'pcs', SD_SCREW_EA, _sdBuy());
   }
-  addBom('Hurricane ties (H2.5AZ — 1 per joist-to-beam bearing)', H.hurricaneTies, 'pcs', HW.hurricaneTie);
+  addBom('Hurricane ties (H2.5AZ — 1 per joist-to-beam bearing)', H.hurricaneTies, 'pcs', HW.hurricaneTie, HWPACK.hurricane);
+  if (H.tieNails) addBom('Hurricane-tie connector nails (10d × 1½&Prime; HDG — 10/tie)', H.tieNails, 'nails', pb('hw.connectorNail'), HWPACK.connNail);
   if (H.lateralAnchors) addBom(H.lateralLabel, H.lateralAnchors, 'pcs', H.lateralEa);
   // Knee bracing (Table 8, Method 2/3) — diagonal members + connection screws.
   if (LATERAL.braceCount) {
     addBom(`Knee braces (${LATERAL.braceSizeLabel} PT — ${LATERAL.braceCount} @ ~${LATERAL.braceMemberFt}′ diag.)`, LATERAL.braceLumberLf, 'lf', kneeDef.priceLf);
-    addBom('Knee-brace connection screws (3″ structural)', LATERAL.braceScrews, 'pcs', SD_SCREW_EA);
+    addBom('Knee-brace connection screws (3″ structural)', LATERAL.braceScrews, 'pcs', SD_SCREW_EA, _sdBuy());
   }
   // Hidden-fastener diagonal underside bracing (2×6 @ 45–60°).
   if (hiddenBraceLf) {
     addBom('Hidden-fastener underside bracing (2×6 PT @ 45–60°)', hiddenBraceLf, 'lf', FRAMING_PRICE_LF['2x6']);
-    addBom('Underside-bracing screws (#8 × 3″, 2/joist)', hiddenBraceScrews, 'pcs', SD_SCREW_EA);
+    addBom('Underside-bracing screws (#8 × 3″, 2/joist)', hiddenBraceScrews, 'pcs', SD_SCREW_EA, _sdBuy());
   }
   if (H.flashingLf)     addBom('Ledger flashing (continuous, corrosion-resistant — IRC R507.2.4)', H.flashingLf, 'lf', LEDGER_FLASH_LF);
-  if (H.lapNails) addBom('Collated 3&Prime; framing nails (joist lap splices, gunned)', H.lapNails, 'nails', HW.collatedNail3in);
+  if (H.lapNails) addBom('Collated 3&Prime; framing nails (joist lap splices, gunned)', H.lapNails, 'nails', HW.collatedNail3in, _nailBuy());
   // Built-up beam ply fastening (Fig. 15) — collated 3" nails, both faces on 3-ply
-  if (BPF.nails) addBom(`Collated 3&Prime; framing nails (beam plies, 2 rows @ ${BEAM_PLY_SPACING_IN}&Prime; o.c.${BPF.faces > 1 ? ', both faces' : ''})`, BPF.nails, 'nails', HW.collatedNail3in);
+  if (BPF.nails) addBom(`Collated 3&Prime; framing nails (beam plies, 2 rows @ ${BEAM_PLY_SPACING_IN}&Prime; o.c.${BPF.faces > 1 ? ', both faces' : ''})`, BPF.nails, 'nails', HW.collatedNail3in, _nailBuy());
+  // Combined whole-pack purchase for the pooled 3" nails (the use-lines above show $0).
+  if (HWPACK.nails) addBom('Collated 3&Prime; framing nails — combined purchase (joist laps + beam plies)', _nails, 'nails', HW.collatedNail3in, HWPACK.nails);
   // Breaker blocking: added PT #2 (past cut-offs) + the screws fastening it to joists
   if (BLOCKING && BLOCKING.addedBoards) addBom(`Breaker blocking (${BLOCKING.sizeLabel} PT #2) — ${BLOCKING.stock}&prime;`, BLOCKING.addedBoards, 'pcs', BLOCKING.stock * (FRAMING_PRICE_LF[joistSize] ?? FRAMING_PER_LF));
-  if (BLOCKING && BLOCKING.screwCount) addBom(`Blocking screws (3&Prime; structural, ${BLOCKING.screwsPerBlock}/block)`, BLOCKING.screwCount, 'pcs', BLOCKING.screwEa);
+  if (BLOCKING && BLOCKING.screwCount) addBom(`Blocking screws (3&Prime; structural, ${BLOCKING.screwsPerBlock}/block)`, BLOCKING.screwCount, 'pcs', BLOCKING.screwEa, HWPACK.blockScrew);
   // Railing — decomposed to match the calculated material cost (rails+infill per
   // purchased lf + material-specific posts + post-mount hardware), NOT a bundled
   // all-in $/lf that diverges from the estimate.
@@ -6080,13 +6189,15 @@ function render() {
       addBom(`Stair treads (${ST.treadLabel}) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * ST.treadPriceLf));
     ST.riserBuy.lines.forEach(l =>
       addBom(`Stair risers (1×8 PT) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * LUMBER_1x8));
-    addBom('Stringer-to-joist connectors (LSCZ)', ST.connectors, 'pcs', STRINGER_CONNECTOR_EA);
-    addBom('Connector screws (SD #9 × 1½")', ST.connScrews, 'pcs', SD_SCREW_EA);
+    addBom('Stringer-to-joist connectors (LSCZ)', ST.connectors, 'pcs', STRINGER_CONNECTOR_EA, HWPACK.stringerConn);
+    addBom('Connector screws (SD #9 × 1½")', ST.connScrews, 'pcs', SD_SCREW_EA, _sdBuy());
   }
+  // Combined whole-pack purchase for the pooled SD #9 screws (the use-lines above show $0).
+  if (HWPACK.sdScrew) addBom('SD #9 × 1½&Prime; structural screws — combined purchase (stair connectors + post caps + braces)', _sdScrews, 'pcs', SD_SCREW_EA, HWPACK.sdScrew);
   // Stringer-bearing footings (concrete is pooled into the optimized purchase above)
   if (LAND) {
     LAND.kickerBuy.lines.forEach(l => addBom(`Kicker plates (2×4 PT) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * RAILING_RAIL_PRICE));
-    addBom('Kicker-plate concrete screws (Tapcon ¼&Prime; × 2¾&Prime;)', LAND.kickerScrews, 'pcs', KICKER_SCREW_EA);
+    addBom('Kicker-plate concrete screws (Tapcon ¼&Prime; × 2¾&Prime;)', LAND.kickerScrews, 'pcs', KICKER_SCREW_EA, HWPACK.kicker);
   }
   // Stair handrail (4+ risers)
   if (HR) {
@@ -6482,9 +6593,9 @@ function render() {
       <tbody>
         ${bom.map(r => `
           <tr>
-            <td style="text-align:left">${r.item}</td>
+            <td style="text-align:left">${r.item}${r.buy ? `<span style="color:var(--muted);font-size:11px"> · ${r.buy.pooled ? `pooled into the ${r.buy.pooled} purchase` : 'buy ' + packSummary(r.buy)}</span>` : ''}</td>
             <td>${Number.isInteger(r.qty) ? r.qty : r.qty.toFixed(1)}&nbsp;${r.unit}</td>
-            <td>${usd(r.unitPrice)}</td>
+            <td>${usd(r.buy && !r.buy.pooled && r.qty ? r.total / r.qty : r.unitPrice)}</td>
             <td>${usd(r.total)}</td>
           </tr>`).join('')}
         <tr>
@@ -7236,7 +7347,8 @@ function renderPriceBook() {
     const changed = Object.prototype.hasOwnProperty.call(_pbEdits, e.id) && _pbEdits[e.id] !== pb(e.id);
     const sel = s => `<option value="${s}"${av === s ? ' selected' : ''}>${AVAIL[s].label}</option>`;
     html += `<tr class="${e.est === false ? 'pb-ref' : ''}${av === 'out' ? ' pb-out' : ''}">`
-      + `<td><span class="pb-item">${e.item}</span>${e.note ? `<span class="pb-note">${e.note}</span>` : ''}</td>`
+      + `<td><span class="pb-item">${e.item}</span>${e.note ? `<span class="pb-note">${e.note}</span>` : ''}`
+      + `${e.packs && e.packs.length ? `<span class="pb-note">Bought in packs (cheapest combo): ${e.packs.map(p => `${p.n === 1 ? 'ea' : p.n + '-pk'} ${usd(p.n === 1 ? cur : p.price)}`).join(' · ')}</span>` : ''}</td>`
       + `<td style="text-align:right;white-space:nowrap"><span style="color:var(--muted)">$</span>`
       + `<input class="pb-price-in${changed ? ' changed' : ''}" type="number" min="0" step="0.01" value="${cur}" data-id="${e.id}" oninput="onPriceEdit(this)"></td>`
       + `<td class="pb-unit">${e.unit}</td>`
