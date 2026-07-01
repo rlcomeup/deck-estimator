@@ -323,8 +323,40 @@
     /* Client-facing PDF: hide per-task labor pricing & the hourly rate; show only hours + the rounded labor subtotal. */
     .print-hide-cost { display:none !important; }
     .print-only { display:inline !important; }
+    /* Cut Sheet print mode: ONLY the numbered cut list prints (the third output option). */
+    #cutSheetView { display:none !important; }
+    body.cutsheet-print > *:not(#cutSheetView) { display:none !important; }
+    body.cutsheet-print #cutSheetView { display:block !important; position:static !important; inset:auto !important; background:#fff !important; padding:0 !important; overflow:visible !important; }
+    body.cutsheet-print #cutSheetView .cs-box { box-shadow:none !important; max-height:none !important; width:100% !important; overflow:visible !important; }
+    body.cutsheet-print #cutSheetView .cs-bar { position:static !important; background:#fff !important; color:#000 !important; border-bottom:2px solid #000; }
+    body.cutsheet-print #cutSheetView .cs-bar button, body.cutsheet-print #cutSheetView .cs-print { display:none !important; }
+    /* the overlay is dark-themed on screen — force it light on paper */
+    body.cutsheet-print #cutSheetView .cs-box { background:#fff !important; color:#111 !important; }
+    body.cutsheet-print #cutSheetView h4 { color:#111 !important; }
+    body.cutsheet-print #cutSheetView .cs-tbl th, body.cutsheet-print #cutSheetView .cs-tbl td { color:#111 !important; border-color:#ccc !important; }
+    body.cutsheet-print #cutSheetView .cs-intro, body.cutsheet-print #cutSheetView .cs-tot, body.cutsheet-print #cutSheetView .cs-note { color:#444 !important; }
+    body.cutsheet-print #cutSheetView .cs-drawing { page-break-inside:avoid; }
   }
   .print-only { display:none; }   /* hidden on screen; revealed only when printing */
+  /* ── Cut Sheet overlay (third output option: a numbered framing cut list) ── */
+  #cutSheetView { display:none; }
+  #cutSheetView.open { display:flex; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.55); align-items:flex-start; justify-content:center; overflow:auto; padding:2rem 1rem; }
+  #cutSheetView .cs-box { background:var(--surface); color:var(--text); width:min(900px,96vw); border-radius:10px; max-height:90vh; overflow:auto; box-shadow:0 12px 48px rgba(0,0,0,.45); }
+  #cutSheetView .cs-bar { position:sticky; top:0; display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.6rem 1rem; background:var(--button-primary-bg,#2a3a5e); color:#fff; font-weight:600; }
+  #cutSheetView .cs-bar button { background:transparent; border:0; color:#fff; font-size:1.15rem; cursor:pointer; line-height:1; }
+  #cutSheetView .cs-print { font-size:.82rem; border:1px solid #fff; border-radius:5px; padding:2px 9px; margin-right:6px; }
+  #cutSheetView .cs-body { padding:1rem 1.2rem 2rem; }
+  #cutSheetView .cs-intro { font-size:.84rem; color:var(--muted,#666); margin:0 0 1rem; }
+  #cutSheetView h4 { margin:1.25rem 0 .35rem; border-bottom:2px solid var(--accent2,#2a7d4f); padding-bottom:2px; font-size:1rem; }
+  #cutSheetView .cs-tot { font-weight:400; font-size:.78rem; color:var(--muted,#888); }
+  #cutSheetView .cs-tbl { width:100%; border-collapse:collapse; font-size:.86rem; }
+  #cutSheetView .cs-tbl th { text-align:left; font-size:.7rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted,#888); border-bottom:1px solid var(--border,#ddd); padding:3px 6px; }
+  #cutSheetView .cs-tbl td { padding:3px 6px; border-bottom:1px solid var(--border,#eee); vertical-align:top; }
+  #cutSheetView .cs-pill { display:inline-block; background:var(--accent2,#2a7d4f); color:#fff; border-radius:4px; padding:0 7px; font-weight:700; font-size:.8rem; }
+  #cutSheetView .cs-leg .cs-pill { background:var(--button-primary-bg,#2a3a5e); }
+  #cutSheetView .cs-note { color:var(--muted,#888); font-size:.78rem; }
+  #cutSheetView .cs-drawing { width:100%; overflow:auto; margin:.2rem 0 .5rem; border:1px solid var(--border); border-radius:6px; background:#fff; }
+  #cutSheetView .cs-drawing svg { display:block; width:100%; height:auto; }
   .cell.stair-entry { background: var(--cell-stair) !important; outline: 2px solid var(--cell-stair-line); outline-offset: -2px; color: rgba(0,0,0,0.62); }
   .cell.no-rail { outline: 2px dashed #ef4444; outline-offset: -2px; }
   .cell.no-rail::after { content: '⌀'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ef4444; font-size: 11px; font-weight: 700; pointer-events: none; }
@@ -2676,6 +2708,7 @@ function compileJoistBoards(joists, beamOffsets, overhangFt, freestanding, lapFt
   let purchasedLf = 0, neededLf = 0, memberLf = 0, lumberCost = 0, maxPieces = 1, totalBoards = 0;
   let splicedJoists = 0, electedSplices = 0, worstSpreadFt = 0, complementaryJoists = 0;
   const offcuts = [];   // usable drop pieces (stock − length actually spanned), for blocking reuse
+  const members = [];   // per-joist cut record {len, comp, pieces:[{stock, cutLen}]} — feeds the Cut Sheet
   for (const j of joists) {
     const L = j.z1 - j.z0;
     if (L <= 1e-6) continue;
@@ -2690,11 +2723,15 @@ function compileJoistBoards(joists, beamOffsets, overhangFt, freestanding, lapFt
     // drop = each board's stock minus what it spans (its segment + its half-lap
     // share at each joint) — the offcut that can be re-cut into blocking.
     const bnds = [0, ...(run.joints ?? []), L];
+    const memberPieces = [];
     run.pieces.forEach((stock, i) => {
       const lapShare = (i > 0 ? lapFt / 2 : 0) + (i < run.pieces.length - 1 ? lapFt / 2 : 0);
-      const drop = stock - ((bnds[i + 1] - bnds[i]) + lapShare);
+      const cutLen = (bnds[i + 1] - bnds[i]) + lapShare;   // finished length cut from this board
+      memberPieces.push({ stock, cutLen: +cutLen.toFixed(2) });
+      const drop = stock - cutLen;
       if (drop > 0.1) offcuts.push(+drop.toFixed(3));
     });
+    members.push({ len: +L.toFixed(2), comp: !!j.comp, pieces: memberPieces });
     purchasedLf += run.purchasedLf;
     lumberCost  += run.lumberCost;
     neededLf    += L + (run.joints?.length ?? 0) * lapFt;
@@ -2716,7 +2753,7 @@ function compileJoistBoards(joists, beamOffsets, overhangFt, freestanding, lapFt
     piecesPerRun: maxPieces, totalBoards, splicedJoists, electedSplices,
     joistCount: joists.length, complementaryJoists, worstSpreadFt,
     wasteLf, wastePct: purchasedLf > 0 ? (wasteLf / purchasedLf) * 100 : 0,
-    cost: lumberCost, offcuts,
+    cost: lumberCost, offcuts, members,
     priceOf: len => stockBoardPrice(priceLf, len),   // per-board price for BOM lines
   };
 }
@@ -3375,10 +3412,11 @@ function compileLumberList(o) {
   const beamByLen = {};
   let beamPurchasedLf = 0, beamNeededLf = 0, beamMaxPieces = 1, beamSpliceJoints = 0;
   const beamOffcuts = [];
+  const beamRuns = [];   // per beam-row cut record {rowZ, plies, pieces:[{stock,cutLen}]} — feeds the Cut Sheet
   // One continuous beam run (a real row, or the idealized rectangle) covered by stock
   // boards butting only at `breaks`, replicated across `plies` identical plies. Drops
   // (offcuts) are pooled per ply for blocking reuse.
-  const tallyBeamRun = (breaks, plies) => {
+  const tallyBeamRun = (breaks, plies, rowZ) => {
     const rr = optimizeRun(breaks);
     const runLen = breaks[breaks.length - 1];
     rr.pieces.forEach(L => { beamByLen[L] = (beamByLen[L] || 0) + plies; });
@@ -3387,21 +3425,25 @@ function compileLumberList(o) {
     beamMaxPieces    = Math.max(beamMaxPieces, rr.pieces.length);
     beamSpliceJoints += (rr.joints?.length || 0) * plies;
     const bnds = [0, ...(rr.joints ?? []), runLen];
+    const cutPieces = [];
     rr.pieces.forEach((stock, i) => {
+      cutPieces.push({ stock, cutLen: +(bnds[i + 1] - bnds[i]).toFixed(2) });
       const drop = stock - (bnds[i + 1] - bnds[i]);
       if (drop > 0.1) for (let k = 0; k < plies; k++) beamOffcuts.push(+drop.toFixed(3));
     });
+    beamRuns.push({ rowZ, plies, pieces: cutPieces });
   };
   if (FP && FP.postRows && FP.postRows.some(r => r.xs && r.xs.length && r.bx0 != null)) {
     FP.postRows.forEach(r => {                              // MAIN beam rows
       if (!r.xs || !r.xs.length || r.bx0 == null) return;
-      tallyBeamRun(beamRowBreaks(r.bx0, r.bx1, r.xs).breaks, o.beamPlies);
+      tallyBeamRun(beamRowBreaks(r.bx0, r.bx1, r.xs).breaks, o.beamPlies, r.z);
     });
     (FP.suppRuns || []).forEach(cl => {                     // SUPPLEMENTAL beams (single board/ply)
       const xA = cl.beamX0 ?? cl.joists[0].x, xB = cl.beamX1 ?? cl.joists[cl.joists.length - 1].x;
       const len = Math.max(xB - xA, 1);
       const stock = cheapestStockFor(len) ?? len;          // one continuous board — matches the render
       beamByLen[stock] = (beamByLen[stock] || 0) + o.beamPlies;
+      beamRuns.push({ rowZ: cl.zNeed, plies: o.beamPlies, pieces: [{ stock, cutLen: +len.toFixed(2) }], supp: true });
       beamPurchasedLf += stock * o.beamPlies;
       beamNeededLf    += len * o.beamPlies;
       const drop = stock - len;
@@ -3416,13 +3458,13 @@ function compileLumberList(o) {
     const breaks = [...new Set([0,
       ...Array.from({ length: nSpans + 1 }, (_, i) => +(setback + (innerLen / nSpans) * i).toFixed(4)),
       o.spanW])].sort((a, b) => a - b);
-    for (let k = 0; k < layout.beamOffsets.length; k++) tallyBeamRun(breaks, o.beamPlies);
+    for (let k = 0; k < layout.beamOffsets.length; k++) tallyBeamRun(breaks, o.beamPlies, layout.beamOffsets[k]);
   }
   const beamWasteLf = Math.max(0, beamPurchasedLf - beamNeededLf);
   const beams = {
     label: 'Beams', sizeLabel: `${o.beamPlies}-ply ${o.beamDepth}`, byLen: beamByLen,
     neededLf: beamNeededLf, purchasedLf: beamPurchasedLf, piecesPerRun: beamMaxPieces,
-    spliceJoints: beamSpliceJoints,
+    spliceJoints: beamSpliceJoints, runs: beamRuns,
     wasteLf: beamWasteLf, wastePct: beamPurchasedLf > 0 ? (beamWasteLf / beamPurchasedLf) * 100 : 0,
     cost: beamPurchasedLf * beamPriceLf,
   };
@@ -3442,6 +3484,7 @@ function compileLumberList(o) {
 // 3" #9 exterior structural wood screws — Home Depot 1 lb box (~75 ct) ≈ $9.97.
 let BLOCK_SCREW_EA          = 0.13;
 const BLOCK_SCREWS_PER_BLOCK  = 4;
+const RIM_SCREWS_PER_JOIST_END = 3;   // structural screws end-driven through the rim band into each joist end
 
 // Railings sit INSET from the deck edge, referenced off the 4×4 post: the post's OUTER
 // FACE is held 1" in from the structural edge, so its CENTRE line — where the rails,
@@ -3526,7 +3569,7 @@ function computeBlocking(offcuts, joistSize) {
   const empty = { blocks: [], totalBlocks: 0, blockLenFt: 0, blockingLf: 0, blocksFromCutoffs: 0,
     fromCutoffLf: 0, remainingBlocks: 0, addedBoards: 0, addedLf: 0, addedCost: 0, stock: 0,
     screwsPerBlock: BLOCK_SCREWS_PER_BLOCK, screwCount: 0, screwEa: BLOCK_SCREW_EA, screwCost: 0,
-    blocksPerBoard: 0, sizeLabel: joistSize };
+    blocksPerBoard: 0, sizeLabel: joistSize, leftoverPool: offcuts.slice() };
   const FP = computeFramingPlan(), DL = computeDeckingLayout();
   if (!FP || !DL) return empty;
   const joistXs = [...new Set(FP.joistData.map(j => +j.x.toFixed(3)))].sort((a, b) => a - b);
@@ -3630,6 +3673,7 @@ function computeBlocking(offcuts, joistSize) {
   return { blocks, totalBlocks, blockLenFt: +maxBlockLen.toFixed(2), blockingLf: +blockingLf.toFixed(1),
     blocksFromCutoffs, fromCutoffLf: +fromCutoffLf.toFixed(1), remainingBlocks,
     addedBoards, addedLf, addedCost, stock, blocksPerBoard, sizeLabel: joistSize,
+    leftoverPool: pool.filter(c => c > 0.1),   // drops still usable after deck blocking — fed to stair-newel blocks
     screwsPerBlock, screwCount, screwEa: BLOCK_SCREW_EA, screwCost };
 }
 
@@ -4946,6 +4990,13 @@ function calcHardware(sqFt, joists, posts, ledgerLf, freestanding = false, beamS
   // Joists rest ON TOP of dropped beams — hangers only at the ledger face
   // (attached decks, one per joist). Freestanding decks need none.
   const hangers       = freestanding ? 0 : joists;
+  // Rim/band joist → joist ENDS: the band is end-screwed to each joist it caps with
+  // RIM_SCREWS_PER_JOIST_END structural screws. An attached joist's LEDGER end is hung
+  // (a hanger, above), so only its OUTER end takes the rim; a freestanding joist is
+  // rim-capped at BOTH ends. 3" structural screws — pooled with the blocking screws.
+  const rimJoistEnds  = freestanding ? 2 * joists : joists;
+  const rimScrews     = rimJoistEnds * RIM_SCREWS_PER_JOIST_END;
+  const rimScrewCost  = +(rimScrews * BLOCK_SCREW_EA).toFixed(2);
   // Post-base brackets only where the post lands on a concrete pier (tube/
   // belled). Buried posts (pad) bear directly on the pad and posts in deck
   // blocks sit in the socket — no bracket, so no hardware cost is added.
@@ -5002,6 +5053,7 @@ function calcHardware(sqFt, joists, posts, ledgerLf, freestanding = false, beamS
                lapNailCost + lateralCost + flashingCost + tieNailCost;
   return { hangers, bases, ledgerBolts, ledgerEa, ledgerLabel, throughBolts, spliceBolts, boltSpec, boltCost,
            postCaps, postCapScrews, capCost, useCaps,
+           rimJoistEnds, rimScrews, rimScrewCost,
            hurricaneTies, tieNails, tieNailCost, joistLaps, lapNails, lapNailCost,
            lateralAnchors, lateralEa, lateralLabel, lateralCost, flashingLf, flashingCost, cost };
 }
@@ -5448,6 +5500,181 @@ function fmtFtIn(decFt) {
   if (i === 12) return `${f + 1}&prime;`;
   return `${f}&prime;&thinsp;${i}&Prime;`;
 }
+// ── Cut Sheet DATA (third output option) ────────────────────────────
+// Defined HERE in script 1 so the init-time render() (applyLayout on load) can
+// reach it — it lived in a later <script> block and threw "not defined" on load,
+// aborting render() before the report HTML, so the BOM vanished. The Cut Sheet UI
+// fns (showCutSheet etc.) stay further down; they only run from the button.
+// A numbered framing cut list built from the SAME per-member records the BOM bills
+// (LUMBER[0].members, LUMBER[1].runs, F.postBuy) — so it can't diverge from the BOM.
+function buildCutSheet(LUMBER, F, joistSize, beamDepth, beamPlies, postLenFt, postLenMaxFt, postCount, bp, postExtra) {
+  if (!LUMBER) return null;
+  const beamDim = `${beamPlies}-ply ${beamDepth}`;
+  const legend = [], legKey = new Map();
+  const ensure = (dim, stockFt) => {
+    const k = `${dim}|${stockFt}`;
+    if (!legKey.has(k)) { legKey.set(k, legend.length + 1); legend.push({ n: legend.length + 1, dim, stockFt, qty: 0 }); }
+    return legKey.get(k);
+  };
+  // Legend board QTY comes from the BOM's own board tallies (authoritative → parity).
+  const addQty = (byLen, dim) => Object.keys(byLen || {}).map(Number).sort((a, b) => b - a)
+    .forEach(S => { legend[ensure(dim, S) - 1].qty += byLen[S]; });
+  addQty(LUMBER[0] && LUMBER[0].byLen, joistSize);
+  addQty(LUMBER[1] && LUMBER[1].byLen, beamDim);
+  ((F && F.postBuy && F.postBuy.lines) || []).forEach(l => { legend[ensure('6×6', l.stock) - 1].qty += l.count; });
+  // Joists — one row per PHYSICAL board (a spliced joist is 2 boards). Numbered J1.. in the
+  // framing plan's spatial order (J1 = first joist). Each board also gets a PLACED record
+  // (its joist line's x / z-extent, from window._beamPlan3d) so the drawing can show where it
+  // goes. members[] and bp.joists/compJoists come from the SAME plan, so they align by order.
+  const joists = []; const placedJoists = [];
+  const _members = (LUMBER[0] && LUMBER[0].members) || [];
+  const _bpJ = (bp && bp.joists) || [], _bpC = (bp && bp.compJoists) || [];
+  let _fi = 0, _ci = 0;
+  _members.forEach(m => {
+    const pos = m.comp ? _bpC[_ci++] : _bpJ[_fi++];
+    const mb = m.pieces.map(p => { const b = { id: '', cutLen: p.cutLen, n: ensure(joistSize, p.stock), note: m.comp ? 'board-end joist' : '' }; joists.push(b); return b; });
+    if (pos) placedJoists.push({ x: pos.x, z0: pos.z0, z1: pos.z1, comp: !!m.comp, _b: mb });
+  });
+  // Beams — one board per ply per piece, collected per beam line.
+  const beams = []; const placedBeams = [];
+  const _runs = ((LUMBER[1] && LUMBER[1].runs) || []).slice().sort((a, b) => a.rowZ - b.rowZ);
+  const _bpM = ((bp && bp.mains) || []).slice().sort((a, b) => a - b), _bpS = (bp && bp.supp) || [];
+  let _mi = 0, _si = 0;
+  _runs.forEach(run => {
+    const pcs = [];   // one entry per stock board laid along the line: {cutLen, _b:[the plies]}
+    run.pieces.forEach(p => {
+      const pb = [];
+      for (let ply = 0; ply < run.plies; ply++) { const b = { id: '', cutLen: p.cutLen, n: ensure(beamDim, p.stock), note: run.supp ? 'supplemental' : '' }; beams.push(b); pb.push(b); }
+      pcs.push({ cutLen: p.cutLen, _b: pb });
+    });
+    if (run.supp) { const s = _bpS[_si++]; if (s) placedBeams.push({ z: s.z, x0: s.x0, x1: s.x1, supp: true, _p: pcs }); }
+    else { const z = _bpM[_mi++]; if (z != null) placedBeams.push({ z, supp: false, _p: pcs }); }
+  });
+  // Posts — each post's ACTUAL length (a sloped site raises the corner posts by their ground
+  // drop, postExtra[i], in the SAME order as bp.posts), and the stock it needs = the smallest
+  // POST_STOCK_LENGTHS ≥ that length — exactly what optimizePostsVar buys per length-bucket. So
+  // a 10' board is a TALL post, not a short one. Numbered by stock (tallest first) → the list
+  // ranges stay contiguous, and the placed post (drawing) carries the same number at its spot.
+  const posts = []; const placedPosts = [];
+  const _bpP = (bp && bp.posts) || [];
+  const _postStock = L => POST_STOCK_LENGTHS.find(S => S + 1e-6 >= L) || POST_STOCK_LENGTHS[POST_STOCK_LENGTHS.length - 1];
+  const _raw = [];
+  for (let i = 0; i < (postCount || 0); i++) {
+    const len = (postLenFt || 0) + Math.max(0, (postExtra && postExtra[i]) || 0);
+    _raw.push({ idx: i, len, stock: _postStock(len) });
+  }
+  _raw.sort((a, b) => b.stock - a.stock || a.idx - b.idx);   // tallest stock first → P1.. are the tall posts
+  let _pc = 0;
+  _raw.forEach(rp => {
+    const id = `P${++_pc}`, nn = ensure('6×6', rp.stock);
+    posts.push({ id, cutLen: rp.len, n: nn, note: '' });
+    const pp = _bpP[rp.idx]; if (pp) placedPosts.push({ x: pp.x, z: pp.z, id, n: nn });
+  });
+  // GROUP-based numbering for joists/beams (identical cuts consecutive → tidy list ranges); the
+  // placed records read the SAME ids by reference, so list ↔ plan stay in sync. Posts numbered above.
+  _numberBoards(joists, 'J'); _numberBoards(beams, 'B');
+  placedJoists.forEach(p => { p.ids = p._b.map(b => b.id); p.ns = p._b.map(b => b.n); delete p._b; });
+  placedBeams.forEach(p => { p.pieces = p._p.map(pc => ({ cutLen: pc.cutLen, ids: pc._b.map(b => b.id), n: pc._b[0].n })); delete p._p; });
+  const pd = window._planData || {};
+  return { legend, joists, beams, posts,
+    placed: { joists: placedJoists, beams: placedBeams, posts: placedPosts,
+      cells: pd.cells || null, cellFt: pd.cellFt || 1,
+      spanW: bp ? bp.spanW : (pd.spanW || 0), spanD: bp ? bp.spanD : (pd.spanH || 0) } };
+}
+const _idRange = ids => !ids || !ids.length ? '' : ids.length === 1 ? ids[0] : `${ids[0]}–${ids[ids.length - 1]}`;
+// Distinct colour per board GROUP (legend #) so the cut sheet & plan are colour-coded — the
+// legend pill, every list pill, and each member's line+label on the drawing share one colour.
+const CUT_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#ca8a04', '#db2777', '#4338ca', '#15803d', '#0d9488', '#b45309', '#be123c', '#7c3aed'];
+const _cutColor = n => CUT_COLORS[(((n || 1) - 1) % CUT_COLORS.length + CUT_COLORS.length) % CUT_COLORS.length];
+// Assign GROUP-based ids (prefix1, prefix2, …) to board objects in place: same cut length +
+// board# get CONSECUTIVE numbers, so cut-sheet ranges stay tidy (J1–J19) — and the drawing
+// labels each member with the same id, so list ↔ plan cross-reference holds.
+function _numberBoards(boards, prefix) {
+  const groups = new Map();
+  boards.forEach(b => { const k = `${b.cutLen}|${b.n}|${b.note || ''}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(b); });
+  let c = 0;
+  [...groups.values()].sort((A, B) => A[0].n - B[0].n || B[0].cutLen - A[0].cutLen)
+    .forEach(g => g.forEach(b => { b.id = `${prefix}${++c}`; }));
+}
+// Compress an id list ["J1","J2","J3","J5"] → "J1–J3, J5" (sorted, consecutive runs collapsed).
+function _compressIds(ids) {
+  if (!ids || !ids.length) return '';
+  const pref = ids[0].replace(/\d+$/, '');
+  const nums = ids.map(id => +id.replace(/^\D+/, '')).sort((a, b) => a - b);
+  const parts = []; let s = nums[0], p = nums[0];
+  for (let i = 1; i <= nums.length; i++) {
+    if (i < nums.length && nums[i] === p + 1) { p = nums[i]; continue; }
+    parts.push(s === p ? `${pref}${s}` : `${pref}${s}–${pref}${p}`);
+    if (i < nums.length) { s = nums[i]; p = nums[i]; }
+  }
+  return parts.join(', ');
+}
+// Cut-sheet framing plan: a top-view drawing (like the engineering plan) with EVERY joist /
+// beam / post labelled by its cut-sheet number, so a crew sees where each numbered cut goes.
+// Drawn on a white panel so it reads on the dark overlay AND when printed.
+function buildCutSheetPlanSVG(P) {
+  if (!P || !(P.spanW > 0) || !(P.spanD > 0)) return '';
+  const cz = P.cellFt || 1, cells = P.cells;
+  const nRows = cells ? cells.length : Math.round(P.spanD / cz);
+  const nCols = cells ? cells[0].length : Math.round(P.spanW / cz);
+  const on = (i, j) => cells ? (i >= 0 && i < nRows && j >= 0 && j < nCols && !!cells[i][j])
+                             : (i >= 0 && i < nRows && j >= 0 && j < nCols);
+  const sc = 540 / Math.max(P.spanW, P.spanD);
+  const ox = 28, oy = 24, dw = P.spanW * sc, dh = P.spanD * sc;
+  const X = x => ox + x * sc, Y = z => oy + z * sc, e = [];
+  for (let i = 0; i < nRows; i++) for (let j = 0; j < nCols; j++) {       // deck outline
+    if (!on(i, j)) continue;
+    const x = ox + j * cz * sc, y = oy + i * cz * sc, w = cz * sc;
+    if (!on(i - 1, j)) e.push(`<line x1="${x}" y1="${y}" x2="${x + w}" y2="${y}" class="cd-deck"/>`);
+    if (!on(i + 1, j)) e.push(`<line x1="${x}" y1="${y + w}" x2="${x + w}" y2="${y + w}" class="cd-deck"/>`);
+    if (!on(i, j - 1)) e.push(`<line x1="${x}" y1="${y}" x2="${x}" y2="${y + w}" class="cd-deck"/>`);
+    if (!on(i, j + 1)) e.push(`<line x1="${x + w}" y1="${y}" x2="${x + w}" y2="${y + w}" class="cd-deck"/>`);
+  }
+  (P.beams || []).forEach(b => {                                          // beams (under joists)
+    let x0, x1;
+    if (b.supp) { x0 = X(b.x0); x1 = X(b.x1); }
+    else { const i = Math.min(nRows - 1, Math.max(0, Math.floor(b.z / cz)));
+      let j0 = -1, j1 = -1; for (let j = 0; j < nCols; j++) if (on(i, j)) { if (j0 < 0) j0 = j; j1 = j; }
+      if (j0 < 0) return; x0 = ox + j0 * cz * sc; x1 = ox + (j1 + 1) * cz * sc; }
+    const y = Y(b.z);
+    // Lay each piece (stock board, both plies) along the beam by its cut length, COLOURED by its
+    // group and labelled at its own midpoint, with a tick at each splice joint.
+    const pcs = b.pieces || [], tot = pcs.reduce((s, pc) => s + (pc.cutLen || 0), 0) || 1;
+    let cx = x0;
+    pcs.forEach((pc, k) => {
+      const w = (x1 - x0) * ((pc.cutLen || 0) / tot), mid = cx + w / 2, col = _cutColor(pc.n);
+      e.push(`<line x1="${cx.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(cx + w).toFixed(1)}" y2="${y.toFixed(1)}" class="cd-beam" stroke="${col}"/>`);
+      if (k > 0) e.push(`<line x1="${cx.toFixed(1)}" y1="${(y - 3.5).toFixed(1)}" x2="${cx.toFixed(1)}" y2="${(y + 3.5).toFixed(1)}" class="cd-bsplice"/>`);
+      e.push(`<text x="${mid.toFixed(1)}" y="${(y - 2.5).toFixed(1)}" class="cd-blab" fill="${col}">${_compressIds(pc.ids)}</text>`);
+      cx += w;
+    });
+  });
+  (P.joists || []).forEach(j => {                                         // joists — each board segment coloured by its group
+    const x = X(j.x), y0 = Y(j.z0), y1 = Y(j.z1), n = j.ids.length;
+    j.ids.forEach((id, k) => {
+      const ya = y0 + (y1 - y0) * k / n, yb = y0 + (y1 - y0) * (k + 1) / n, my = (ya + yb) / 2, col = _cutColor(j.ns ? j.ns[k] : 1);
+      e.push(`<line x1="${x.toFixed(1)}" y1="${ya.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yb.toFixed(1)}" class="cd-joist${j.comp ? ' cd-comp' : ''}" stroke="${col}"/>`);
+      e.push(`<text x="${x.toFixed(1)}" y="${my.toFixed(1)}" class="cd-jlab" fill="${col}" transform="rotate(-90 ${x.toFixed(1)} ${my.toFixed(1)})">${id}</text>`);
+    });
+  });
+  (P.posts || []).forEach(p => {                                          // posts — square + label coloured by group
+    const cx = X(p.x), cy = Y(p.z), r = Math.max(3, sc * 0.5), col = _cutColor(p.n);
+    e.push(`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" class="cd-foot"/><rect x="${(cx - 2.4).toFixed(1)}" y="${(cy - 2.4).toFixed(1)}" width="4.8" height="4.8" fill="${col}"/>`);
+    e.push(`<text x="${(cx + r + 1.5).toFixed(1)}" y="${(cy + 3).toFixed(1)}" class="cd-plab" fill="${col}">${p.id}</text>`);
+  });
+  const W = dw + ox + 30, H = dh + oy + 14;
+  // NB: the joist/beam/post colours come from inline stroke/fill attributes set per member
+  // (per board group). A CSS class colour would OVERRIDE a presentation attribute, so these
+  // classes carry only structural props (width / dash / font) — NO colour — and leave the
+  // colour to the inline attribute. cd-deck / cd-foot / cd-bsplice have no inline colour so
+  // they keep theirs here.
+  const css = `<style>.cd-deck{stroke:#111;stroke-width:1.6;fill:none}.cd-beam{stroke-width:3;fill:none}` +
+    `.cd-joist{stroke-width:.8;fill:none}.cd-comp{stroke-dasharray:3 2}.cd-foot{fill:#cbd5e1;stroke:#111;stroke-width:.6}` +
+    `.cd-jlab{font:600 6px sans-serif;text-anchor:middle}` +
+    `.cd-blab{font:700 7px sans-serif;text-anchor:middle}.cd-bsplice{stroke:#7c2d12;stroke-width:1.2}.cd-plab{font:700 7px sans-serif}</style>`;
+  return `<svg viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}" class="cd-plan" xmlns="http://www.w3.org/2000/svg">${css}` +
+    `<rect x="0" y="0" width="${W.toFixed(0)}" height="${H.toFixed(0)}" rx="6" fill="#ffffff"/>${e.join('')}</svg>`;
+}
 const usd = n => '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const line = (lbl, val, cls = '') =>
   `<div class="line"><span class="lbl">${lbl}</span><span class="val ${cls}">${val}</span></div>`;
@@ -5679,6 +5906,10 @@ function render() {
   const BLOCKING = LUMBER.blocking;
   window._blocking3d = BLOCKING;   // consumed by the 3D renderer
   window._lumberList = LUMBER;     // exposed for parity checks (joists/beams/deck cut-list)
+  // Numbered framing cut sheet (third print option) — built from the SAME per-member
+  // records LUMBER bills, so the cut list matches the BOM purchase list by construction.
+  try { window._cutSheet = buildCutSheet(LUMBER, F, joistSize, beamDepth, beamPlies, F.postMatFt, F.postLenMax, posts, window._beamPlan3d, postExtraFt); }
+  catch (e) { window._cutSheet = null; window.__CUTERR = String((e && e.stack) || e); }   // cut sheet is non-critical — never let it break the report
   const lumberCost = LUMBER.reduce((s, it) => s + it.cost, 0) + (BLOCKING?.addedCost || 0);
 
   // Beam splice joints: where two beam segments join on a post, that post needs
@@ -5977,7 +6208,19 @@ function render() {
   // SG.posts × guardSides (guardSides already totals every guarded side across all flights).
   const stairNewelBlocks = (ST && SG) ? SG.posts * guardSides : 0;
   const stairBlockBayFt  = ST ? Math.max(0.6, ((ST.maxSpacingIn || 12) - 1.5) / 12) : 0;  // stringer bay = treadOC − stringer thickness
-  const stairBlockBuy    = stairNewelBlocks ? optimizePosts(stairNewelBlocks, stairBlockBayFt, FRAMING_PRICE_LF['2x6']) : { boards: 0, lines: [], cost: 0 };
+  const stairBlockNom    = (parseInt(joistSize.split('x')[1]) || 8) >= 8 ? '2x8' : '2x6'; // 2×6 only on 2×6-joist decks, else 2×8
+  // The block is cut from the deck's leftover joist/beam drops first — but a drop is the JOIST
+  // size, so reuse it only when that matches the block size; otherwise the shortfall is bought.
+  let stairBlockFromCut = 0;
+  if (stairNewelBlocks && BLOCKING && BLOCKING.sizeLabel === stairBlockNom) {
+    const _pool = (BLOCKING.leftoverPool || []).slice().sort((a, b) => b - a), _KERF = (1 / 8) / 12;
+    for (let i = 0; i < stairNewelBlocks; i++) {
+      const p = _pool.findIndex(c => c >= stairBlockBayFt - 1e-6);
+      if (p >= 0) { _pool[p] -= (stairBlockBayFt + _KERF); stairBlockFromCut++; }
+    }
+  }
+  const stairBlockBuyN   = stairNewelBlocks - stairBlockFromCut;                            // pieces still to buy
+  const stairBlockBuy    = stairBlockBuyN > 0 ? optimizePosts(stairBlockBuyN, stairBlockBayFt, FRAMING_PRICE_LF[stairBlockNom]) : { boards: 0, lines: [], cost: 0 };
   const stairBlockScrews = stairNewelBlocks * 4;   // 4 structural screws/block into the flanking stringers
   const matLumber   = framingMatCost + (R ? R.materialCost : 0) + (ST ? ST.materialCost : 0)
                     + (SG ? SG.materialCost * guardSides : 0) + LAY.materialCost
@@ -6017,7 +6260,7 @@ function render() {
   _hwAdd('nut',          hwPacks('hw.nut'),              H.throughBolts,         H.boltSpec ? H.boltSpec.nutEa : pb('hw.nut'));
   _hwAdd('washer',       hwPacks('hw.washer'),           H.throughBolts * 2,     H.boltSpec ? H.boltSpec.washerEa : pb('hw.washer'));
   _hwAdd('stringerConn', hwPacks('stair.stringerConn'),  ST ? ST.connectors : 0, STRINGER_CONNECTOR_EA);
-  _hwAdd('blockScrew',   hwPacks('hw.blockScrew'),       (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews, BLOCK_SCREW_EA);
+  _hwAdd('blockScrew',   hwPacks('hw.blockScrew'),       (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0), BLOCK_SCREW_EA);
   _hwAdd('kicker',       hwPacks('stair.kickerScrew'),   LAND ? LAND.kickerScrews : 0, KICKER_SCREW_EA);
   const hwPackPremium = +Object.keys(HWPACK).reduce((s, k) => s + (HWPACK[k].cost - _hwEach[k]), 0).toFixed(2);
 
@@ -6053,6 +6296,7 @@ function render() {
   const matHardware = DF.cost + H.cost + BPF.cost + (HR ? HR.materialCost * stairFlights : 0)
                     + (BLOCKING ? BLOCKING.screwCost : 0)           // deck-blocking screws (loose base)
                     + stairBlockScrews * BLOCK_SCREW_EA             // stair-newel-block screws loose base (pack round-up is in hwPackPremium)
+                    + (H ? H.rimScrews * BLOCK_SCREW_EA : 0)        // rim-to-joist end screws loose base
                     + (LAND ? LAND.kickerScrewCost : 0)             // concrete screws anchoring the kicker plates
                     + LATERAL.braceScrewCost + hiddenBraceScrewCost // brace connection screws (tie hardware is in H.cost)
                     + hwPackPremium;                                // whole-pack round-up over the loose per-each above
@@ -6213,9 +6457,10 @@ function render() {
   if (HWPACK.nails) addBom('Collated 3&Prime; framing nails — combined purchase (joist laps + beam plies)', _nails, 'nails', HW.collatedNail3in, HWPACK.nails);
   // Breaker blocking: added PT #2 (past cut-offs) + the screws fastening it to joists
   if (BLOCKING && BLOCKING.addedBoards) addBom(`Breaker blocking (${BLOCKING.sizeLabel} PT #2) — ${BLOCKING.stock}&prime;`, BLOCKING.addedBoards, 'pcs', BLOCKING.stock * (FRAMING_PRICE_LF[joistSize] ?? FRAMING_PER_LF));
-  const _allBlockScrews = (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews;
-  if (_allBlockScrews) addBom(`Blocking screws (3&Prime; structural — ${[(BLOCKING && BLOCKING.screwCount) ? 'breakers/railing posts' : '', stairBlockScrews ? 'stair newels' : ''].filter(Boolean).join(' + ')})`, _allBlockScrews, 'pcs', BLOCK_SCREW_EA, HWPACK.blockScrew);
-  if (stairNewelBlocks) stairBlockBuy.lines.forEach(l => addBom(`Stair newel blocking (2×6 PT, ${stairBlockBayFt.toFixed(1)}′ ea${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}) — ${l.stock}′ stock`, l.count, 'pcs', l.stock * FRAMING_PRICE_LF['2x6']));
+  const _allBlockScrews = (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0);
+  if (_allBlockScrews) addBom(`3&Prime; structural screws (${[(BLOCKING && BLOCKING.screwCount) ? 'breaker/railing-post blocking' : '', stairBlockScrews ? 'stair newels' : '', (H && H.rimScrews) ? `rim-to-joist ${RIM_SCREWS_PER_JOIST_END}/end` : ''].filter(Boolean).join(' + ')})`, _allBlockScrews, 'pcs', BLOCK_SCREW_EA, HWPACK.blockScrew);
+  if (stairBlockFromCut) addBom(`Stair newel blocking (${stairBlockNom.replace('x','×')} PT, ${stairBlockBayFt.toFixed(1)}′ ea) — cut from framing off-cuts`, stairBlockFromCut, 'pcs', 0);
+  if (stairBlockBuyN > 0) stairBlockBuy.lines.forEach(l => addBom(`Stair newel blocking (${stairBlockNom.replace('x','×')} PT, ${stairBlockBayFt.toFixed(1)}′ ea${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}) — ${l.stock}′ stock`, l.count, 'pcs', l.stock * FRAMING_PRICE_LF[stairBlockNom]));
   // Railing — decomposed to match the calculated material cost (rails+infill per
   // purchased lf + material-specific posts + post-mount hardware), NOT a bundled
   // all-in $/lf that diverges from the estimate.
@@ -6417,7 +6662,7 @@ function render() {
 
     <div class="breakdown-grid">
       <div class="breakdown-card"><div class="bc-label">Materials</div><div class="bc-val">${usd(matTotal)}</div></div>
-      <div class="breakdown-card"><div class="bc-label">Labor (${totalManHours.toFixed(1)} man-hrs · ${SCHED.label})</div><div class="bc-val">${usd(laborTotal)}</div></div>
+      <div class="breakdown-card"><div class="bc-label">Labor (<span class="print-hide-cost">${totalManHours.toFixed(1)} man-hrs · </span>${SCHED.label})</div><div class="bc-val"><span class="print-hide-cost">${usd(laborTotal)}</span><span class="print-only">${usd(Math.ceil(laborTotal / 1000) * 1000)}</span></div></div>
     </div>
     <div id="storePickerSlot"></div>
     ${(() => {
@@ -6580,6 +6825,7 @@ function render() {
     ${subline(`Deck-board fasteners — ${DF.label}`, `${DF.count} pcs`)}
     ${H.hangers > 0 ? subline('Joist hangers (ledger end)', H.hangers)
       : `<div class="subline"><span style="color:var(--muted);font-size:11px">No joist hangers — joists bear on beams</span></div>`}
+    ${H.rimScrews ? subline(`Rim-to-joist screws (3&Prime; structural — ${RIM_SCREWS_PER_JOIST_END}/joist end × ${H.rimJoistEnds} ${freestanding ? 'ends, both' : 'outer'} ends)`, `${H.rimScrews} pcs &nbsp;·&nbsp; pooled into the 3&Prime; structural-screw purchase`) : ''}
     ${H.bases ? subline('Post bases (ABA66Z)', H.bases)
       : `<div class="subline"><span style="color:var(--muted);font-size:11px">No post bases — ${footingType === 'pad' ? 'buried posts bear on pad' : footingType === 'block' ? 'posts sit in block socket' : 'post anchored at pier'}</span></div>`}
     ${freestanding ? '' : subline('Ledger bolts', H.ledgerBolts)}
@@ -6693,6 +6939,7 @@ function render() {
     </div>
     <button class="print-btn" style="background:var(--button-primary-bg);margin-top:.5rem" onclick="open3DPreview()">3D Preview</button>
     <button class="print-btn" onclick="printDeck()">Print / Save as PDF</button>
+    <button class="print-btn" style="background:var(--accent2)" onclick="showCutSheet()">Cut Sheet</button>
   `;
   // Relocate the persistent store/location picker into the estimate, just below the
   // Materials/Labor cards. Moving the element keeps its event listeners + state intact.
@@ -8025,6 +8272,80 @@ function buildEngineeringPlanSVG() {
   </style>`;
   const W = ox + dw + 120, H = eyTop + 120 + 30;
   return `<svg viewBox="0 0 ${W} ${H}" class="engplan" xmlns="http://www.w3.org/2000/svg">${style}${e.join('')}</svg>`;
+}
+
+// ── Cut Sheet UI ────────────────────────────────────────────────────
+// buildCutSheet (the DATA builder) lives up in script 1 so the init-time render()
+// can reach it (see the note there). These run only from the "Cut Sheet" button.
+// Group consecutive members with the same cut length + board # into one line.
+// Group ALL members in a category by cut length + board # (+ note) GLOBALLY — not just
+// consecutive — so identical cuts collapse to ONE line however the members are ordered.
+function _cutGroups(rows) {
+  const map = new Map();
+  rows.forEach(r => {
+    const key = `${r.cutLen}|${r.n}|${r.note || ''}`;
+    if (!map.has(key)) map.set(key, { cutLen: r.cutLen, n: r.n, note: r.note || '', qty: 0, ids: [] });
+    const g = map.get(key); g.qty++; g.ids.push(r.id);
+  });
+  return [...map.values()].sort((a, b) => a.n - b.n || b.cutLen - a.cutLen);
+}
+function showCutSheet() {
+  if (!window._cutSheet) render();
+  const data = window._cutSheet;
+  let ov = document.getElementById('cutSheetView');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'cutSheetView'; document.body.appendChild(ov); }
+  const empty = !data || (!data.joists.length && !data.beams.length && !data.posts.length);
+  if (empty) {
+    ov.innerHTML = `<div class="cs-box"><div class="cs-bar"><span>Cut Sheet</span><button onclick="closeCutSheet()">&times;</button></div><div class="cs-body"><p style="padding:1rem 0">Paint a deck first — there's no framing to cut yet.</p></div></div>`;
+    ov.classList.add('open'); return;
+  }
+  const section = (title, rows) => {
+    if (!rows.length) return '';
+    const body = _cutGroups(rows).map(g =>
+      `<tr><td>${g.qty}</td><td>${_compressIds(g.ids)}</td><td><b>${fmtFtIn(g.cutLen)}</b></td><td><span class="cs-pill" style="background:${_cutColor(g.n)}">#${g.n}</span></td><td class="cs-note">${g.note || ''}</td></tr>`
+    ).join('');
+    return `<h4>${title} <span class="cs-tot">${rows.length} pcs</span></h4>
+      <table class="cs-tbl"><thead><tr><th>Qty</th><th>Members</th><th>Cut to</th><th>Board #</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
+  };
+  // Posts get their OWN section: a sloped site makes every post a slightly different length, so
+  // grouping by exact length would explode the list. Group by STOCK (board #) and show the
+  // cut-length RANGE — they're field-cut to grade — so a 10' board reads as a TALL post.
+  const postSection = rows => {
+    if (!rows.length) return '';
+    const map = new Map();
+    rows.forEach(r => { if (!map.has(r.n)) map.set(r.n, { n: r.n, ids: [], min: r.cutLen, max: r.cutLen }); const g = map.get(r.n); g.ids.push(r.id); g.min = Math.min(g.min, r.cutLen); g.max = Math.max(g.max, r.cutLen); });
+    const body = [...map.values()].sort((a, b) => a.n - b.n).map(g => {
+      const cut = Math.abs(g.max - g.min) < 0.04 ? fmtFtIn(g.max) : `${fmtFtIn(g.min)}–${fmtFtIn(g.max)}`;
+      return `<tr><td>${g.ids.length}</td><td>${_compressIds(g.ids)}</td><td><b>${cut}</b></td><td><span class="cs-pill" style="background:${_cutColor(g.n)}">#${g.n}</span></td><td class="cs-note">${g.min !== g.max ? 'field-cut to grade' : ''}</td></tr>`;
+    }).join('');
+    return `<h4>Posts <span class="cs-tot">${rows.length} pcs</span></h4>
+      <table class="cs-tbl"><thead><tr><th>Qty</th><th>Members</th><th>Cut to</th><th>Board #</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
+  };
+  const legend = `<h4>Board Legend <span class="cs-tot">${data.legend.reduce((s, l) => s + l.qty, 0)} boards to buy</span></h4>
+    <table class="cs-tbl cs-leg"><thead><tr><th>#</th><th>Dimension</th><th>Stock length</th><th>Buy</th></tr></thead><tbody>
+    ${data.legend.map(l => `<tr><td><span class="cs-pill" style="background:${_cutColor(l.n)}">#${l.n}</span></td><td>${String(l.dim).replace(/x/g, '×')}</td><td><b>${fmtFtIn(l.stockFt)}</b></td><td>${l.qty}</td></tr>`).join('')}
+    </tbody></table>`;
+  ov.innerHTML = `<div class="cs-box">
+    <div class="cs-bar"><span>Cut Sheet — numbered framing cut list</span>
+      <span><button class="cs-print" onclick="printCutSheet()">🖨 Print</button><button onclick="closeCutSheet()" title="Close">&times;</button></span></div>
+    <div class="cs-body">
+      <p class="cs-intro">Each joist, beam &amp; post is numbered on the <b>framing plan</b> below and in the tables. Buy the boards in the <b>legend</b>, then cut each numbered member to its length from the listed board <b>#</b>. Stock lengths are the cheapest-cost mix — finished cuts leave the off-cuts the estimate already accounts for.</p>
+      <h4>Framing Plan <span class="cs-tot">where each numbered member goes — J joists · B beams · P posts</span></h4>
+      <div class="cs-drawing">${data.placed ? buildCutSheetPlanSVG(data.placed) : ''}</div>
+      ${legend}
+      ${section('Joists', data.joists, 'J')}
+      ${section('Beams', data.beams, 'B')}
+      ${postSection(data.posts)}
+    </div></div>`;
+  ov.classList.add('open');
+}
+function closeCutSheet() { const ov = document.getElementById('cutSheetView'); if (ov) ov.classList.remove('open'); }
+function printCutSheet() {
+  document.body.classList.add('cutsheet-print');
+  const clear = () => document.body.classList.remove('cutsheet-print');
+  window.addEventListener('afterprint', clear, { once: true });
+  window.print();
+  setTimeout(clear, 800);
 }
 
 // Print with rendered deck views: capture top / side / bottom snapshots
@@ -9462,7 +9783,12 @@ function init3D() {
         // Tread = the SAME 5/4×6 species deck boards it is billed as — `treadBoards`
         // boards laid across the run in deckMat, 1" thick, butted with a 1/8" gap —
         // so what's drawn matches the surface decking and the BOM line.
-        const boardDepth = (stepRun - (treadBoards - 1) * TREAD_GAP) / treadBoards;
+        // Tread runs from its back edge (nearEdge, where the upper riser lands on it) forward
+        // PAST the lower riser's face by a 1" nosing — so it sits ON the riser, never clips it,
+        // and projects over the stringer nose instead of stopping flush at the saw-cut.
+        const nosing     = 1 / 12;
+        const treadRun   = stepRun + riserThk + nosing;
+        const boardDepth = (treadRun - (treadBoards - 1) * TREAD_GAP) / treadBoards;
         for (let b = 0; b < treadBoards; b++) {
           const rc = nearEdge + sign * (boardDepth / 2 + b * (boardDepth + TREAD_GAP));
           const tb = new THREE.Mesh(
@@ -9477,7 +9803,9 @@ function init3D() {
         // included (so the render matches the BOM — open risers otherwise).
         if (showRisers) {
           const riserH  = Math.max(0.01, stepRise - treadH);
-          const riserRC = nearEdge + sign * stepRun;
+          // Seat the riser's BACK face on the stringer's plumb cut (at nearEdge+stepRun) and let
+          // its body project OUTWARD — centering it on the cut buried half its thickness in the tooth.
+          const riserRC = nearEdge + sign * (stepRun + riserThk / 2);
           const riser = new THREE.Mesh(
             horiz ? new THREE.BoxGeometry(riserThk, riserH, stairWFt)
                   : new THREE.BoxGeometry(stairWFt, riserH, riserThk), riserMat);
@@ -9795,15 +10123,18 @@ function init3D() {
             const ocStrB = nStrB > 1 ? (stairWFt - sThkB) / (nStrB - 1) : Math.max(0.1, stairWFt - sThkB);
             const blkAcross = so * (stairWFt / 2 - sThkB / 2) - so * ocStrB / 2;   // centre of the outer stringer bay
             const blkLen = Math.max(0.1, ocStrB - sThkB);                          // spans the bay BETWEEN the two stringers
-            const blkThk = sThkB, blkDepth = 5.5 / 12;                             // 2×6 laid FLAT (1½" thick, 5½" run depth) — like the deck post block
+            const blkThk = sThkB;                                                  // 1½" thick, laid flat in the tread plane
+            // 2×6 or 2×8 to match the framing cut-offs it's made from (== the BOM size rule).
+            const blkNom = (parseInt((document.getElementById('joistSize')?.value || '2x8').split('x')[1]) || 8) >= 8 ? '2x8' : '2x6';
+            const blkDepth = LUMBER_DEPTH_FT[blkNom];                              // 5½" (2×6) or 7¼" (2×8) run depth
             postDs.forEach(d => {
+              const k = Math.floor(d / stepRun + 1e-6);                            // step (from the deck) this newel stands on
+              const treadUnderY = (heightFt - k * stepRise) - treadH;              // underside of that LEVEL tread
               const along = edge + dirSign * d, acrossB = (horiz ? sCZ : sCX) + blkAcross;
-              // Long axis ACROSS the bay; thin (blkThk) vertical and 5½" deep along the run — then
-              // RAKED to the stringer pitch (same rotation the rails use) so it lies flush in the bay.
+              // LEVEL block in the tread plane, its TOP butted flush to the tread underside.
               const geo = horiz ? new THREE.BoxGeometry(blkDepth, blkThk, blkLen) : new THREE.BoxGeometry(blkLen, blkThk, blkDepth);
               const bm = new THREE.Mesh(geo, frameMat);
-              bm.position.set(horiz ? along : acrossB, rakeY(d) - blkThk / 2 - 0.02, horiz ? acrossB : along);
-              if (horiz) bm.rotation.z = -dirSign * ang; else bm.rotation.x = dirSign * ang;
+              bm.position.set(horiz ? along : acrossB, treadUnderY - blkThk / 2, horiz ? acrossB : along);
               scene.add(bm);
             });
           }
