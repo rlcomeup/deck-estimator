@@ -405,6 +405,49 @@
   .modal3d-bar button:hover { color:var(--text); }
   #canvas3d { flex:1; width:100%; display:block; cursor:grab; outline:none; }
   #canvas3d:active { cursor:grabbing; }
+
+  /* ── Label panel collapse (tap "Labels" to fold the list away — vital on phones
+        where the panel would otherwise cover much of the render) ── */
+  #labelPanel3d .lp-title span { cursor:pointer; }
+  #labelPanel3d .lp-title span::after { content:' ▾'; font-size:9px; opacity:.7; }
+  #labelPanel3d.lp-collapsed .lp-title span::after { content:' ▸'; }
+  #labelPanel3d.lp-collapsed label, #labelPanel3d.lp-collapsed .lp-all { display:none; }
+  #labelPanel3d.lp-collapsed { padding:.35rem .55rem; }
+  #labelPanel3d.lp-collapsed .lp-title { margin-bottom:0; }
+  .help-touch { display:none; }   /* touch gesture help — shown only at phone widths */
+
+  /* ── Phone layout (iPhone PWA) ─────────────────────────────────── */
+  @media (max-width: 700px) {
+    body { padding:.5rem .3rem; }
+    h1 { font-size:1.15rem; }
+    .subtitle { margin-bottom:.8rem; }
+    .layout { gap:.75rem; }
+    .panel { padding:.6rem .5rem; }
+    .deckshape-bar { margin-bottom:.75rem; }
+    .grid-wrap { padding:4px; max-height:70vh; }
+    /* Tables are the page's min-width floor — scroll them INSIDE their panel
+       instead of widening the whole layout past the screen. (Covers the report
+       tables AND the left panel's lumber-sizing table.) */
+    .report table, table.footing-schedule, table.lumber-table { display:block; overflow-x:auto; max-width:100%; }
+    /* Grid/flex items default to min-width:auto, so a <select>'s longest OPTION
+       (its min-content) propagates up and forces the page wider than the phone.
+       min-width:0 lets rows compress to the screen; option text clips harmlessly
+       (the opened dropdown still shows the full labels). */
+    .layout > *, .panel, .row2 > *, .row3 > * { min-width:0; }
+    select, input[type=number] { min-width:0; }
+    /* Long report values (stock lists etc.) wrap instead of forcing the page wide. */
+    .line .val { white-space:normal; text-align:right; overflow-wrap:anywhere; }
+    /* 3D help text: touch gestures, not mouse bindings */
+    .help-mouse { display:none; }
+    .help-touch { display:inline !important; }
+    .lt-hint { white-space:normal; }
+    .lumber-table td:first-child { white-space:normal; }
+    /* 3D render: true full screen (100dvh tracks the iOS Safari toolbar) */
+    .modal3d-box { width:100vw; max-width:100vw; height:100dvh; border-radius:0; border:none; }
+    #modal3d.open { padding:0; }
+    #legend3d { display:none; }   /* mouse/keyboard help — meaningless on touch */
+    #labelPanel3d { top:50px; right:8px; max-height:calc(100% - 110px); }
+  }
   .modal3d-hint { color:var(--muted); font-size:.73rem; text-align:center; padding:.35rem; flex-shrink:0; }
 
   /* ── Materials Reference / Price Book modal ── */
@@ -7582,7 +7625,7 @@ document.getElementById('gridWrap').addEventListener('wheel', e => {
       <label><input type="checkbox" data-cat="deckHeight" checked>Deck height</label>
     </div>
     <div class="modal3d-bar" style="background:none;border-top:1px solid var(--border-strong);padding:.35rem .6rem;justify-content:space-between">
-      <span style="font-size:11px;color:var(--hint-text)">Left-drag to pan&nbsp;·&nbsp;Right-drag to rotate&nbsp;·&nbsp;W/S up-down&nbsp;·&nbsp;A/D left-right&nbsp;·&nbsp;Scroll to zoom&nbsp;·&nbsp;L hides labels</span>
+      <span class="help-mouse" style="font-size:11px;color:var(--hint-text)">Left-drag to pan&nbsp;·&nbsp;Right-drag to rotate&nbsp;·&nbsp;W/S up-down&nbsp;·&nbsp;A/D left-right&nbsp;·&nbsp;Scroll to zoom&nbsp;·&nbsp;L hides labels</span><span class="help-touch" style="font-size:11px;color:var(--hint-text)">Drag to rotate&nbsp;·&nbsp;Pinch to zoom&nbsp;·&nbsp;Two fingers to pan</span>
       <div style="display:flex;gap:.4rem">
         <button class="tbtn" style="font-size:11px;padding:3px 9px" onclick="_toggleLabels3d && _toggleLabels3d()">⌫ Labels</button>
         <button class="tbtn" style="font-size:11px;padding:3px 9px" onclick="_setCamView3d && _setCamView3d('top')">▲ Top</button>
@@ -8138,11 +8181,17 @@ function _bindLabelPanel() {
   });
   const allBtn = panel.querySelector('.lp-all');
   if (allBtn) allBtn.addEventListener('click', () => _setAllLabelCats(allBtn.dataset.lpAll === 'on'));
+  // Tapping the "Labels" title folds the list away (labels stay as-is in the scene) —
+  // on a phone the open panel covers a big slice of the render.
+  const title = panel.querySelector('.lp-title span');
+  if (title) title.addEventListener('click', () => panel.classList.toggle('lp-collapsed'));
 }
 
 function open3DPreview() {
   document.getElementById('modal3d').classList.add('open');
   _bindLabelPanel();     // wire the label-category checkboxes (once)
+  // Phones: start with the label panel folded so the render owns the screen.
+  document.getElementById('labelPanel3d')?.classList.toggle('lp-collapsed', window.innerWidth < 700);
   setTimeout(init3D, 0); // defer until modal layout is painted
 }
 
