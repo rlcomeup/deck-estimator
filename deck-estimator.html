@@ -2,8 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Deck Build Estimator</title>
+<!-- PWA / iPhone home-screen app -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#14161b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Deck Est">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <script>try{document.documentElement.setAttribute('data-theme',localStorage.getItem('deckEstimatorTheme')||'contractor');}catch(e){document.documentElement.setAttribute('data-theme','contractor');}</script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -183,6 +192,7 @@
   .deck-grid {
     display: grid;
     gap: 1px;
+    touch-action: none;   /* a finger on the grid PAINTS — it must not scroll/zoom the page */
   }
   .cell {
     background: var(--cell-off);
@@ -495,6 +505,11 @@
           <button class="tbtn" id="areaFillBtn" title="Drag to ADD a rectangular area">⬚ Area +</button>
           <button class="tbtn" id="areaEraseBtn" title="Drag to subtract a rectangular area">⬚ Area −</button>
           <button class="tbtn danger" id="clearBtn">Clear All</button>
+        </div>
+        <div class="btn-group" id="markModeBtns" title="Marking mode — tap/click cells to mark instead of paint (same as Ctrl/Shift/Alt-click)">
+          <button class="tbtn" data-mark="stair" title="Mark stair entry cells (or Ctrl+click)">▤ Stairs</button>
+          <button class="tbtn" data-mark="norail" title="Mark no-railing edges (or Shift+click)">▯ No-rail</button>
+          <button class="tbtn" data-mark="nodig" title="Mark can't-dig cells (or Alt+click)">⛔ No-dig</button>
         </div>
       </div>
       <div class="grid-toolbar" style="margin-top:4px">
@@ -2750,6 +2765,7 @@ function compileJoistBoards(joists, beamOffsets, overhangFt, freestanding, lapFt
   const wasteLf = Math.max(0, purchasedLf - neededLf);
   return {
     label: 'Joists', sizeLabel, byLen, neededLf, memberLf, purchasedLf,
+    spliceLapLf: +(neededLf - memberLf).toFixed(1),   // extra lumber the splice OVERLAPS consume (Σ joints × lapFt)
     piecesPerRun: maxPieces, totalBoards, splicedJoists, electedSplices,
     joistCount: joists.length, complementaryJoists, worstSpreadFt,
     wasteLf, wastePct: purchasedLf > 0 ? (wasteLf / purchasedLf) * 100 : 0,
@@ -3956,6 +3972,7 @@ let isDown     = false;
 let paintValue = true;  // what value to write while dragging
 let areaEraseMode = false;
 let areaFillMode  = false;   // drag a rectangle to ADD cells (mirror of area-erase)
+let markMode      = '';      // '' | 'stair' | 'norail' | 'nodig' — toolbar substitute for Ctrl/Shift/Alt (touch devices)
 let areaSelDown   = false;
 let noRailDragging = false;  // Shift held + drag → paint "no railing" across edge cells
 let noRailDragValue = true;  // add (true) or remove (false), fixed at drag start
@@ -4310,8 +4327,9 @@ document.getElementById('deckGrid').addEventListener('mousedown', e => {
   if (!cell) return;
   const r = +cell.dataset.r, c = +cell.dataset.c;
 
-  // Ctrl + left-click (and Ctrl+drag) → mark stair entry on painted perimeter cells
-  if (e.ctrlKey && e.button === 0) {
+  // Ctrl + left-click (and Ctrl+drag) → mark stair entry on painted perimeter cells.
+  // The "▤ Stairs" toolbar mode does the same without a keyboard (touch devices).
+  if ((e.ctrlKey || markMode === 'stair') && e.button === 0) {
     if (!grid[r]?.[c]) return;
     stairDragValue = !stairCells.some(sc => sc.r === r && sc.c === c);   // add if off, remove if on
     stairDragging  = true;
@@ -4321,7 +4339,7 @@ document.getElementById('deckGrid').addEventListener('mousedown', e => {
 
   // Shift + left-click (and Shift+drag) → mark "no railing" on painted perimeter
   // cells. Holding Shift while dragging marks a whole run without clicking each.
-  if (e.shiftKey && e.button === 0) {
+  if ((e.shiftKey || markMode === 'norail') && e.button === 0) {
     if (!grid[r]?.[c]) return;
     noRailDragValue = !noRailCells.some(nc => nc.r === r && nc.c === c);
     noRailDragging  = true;
@@ -4331,7 +4349,7 @@ document.getElementById('deckGrid').addEventListener('mousedown', e => {
 
   // Alt + left-click (and Alt+drag) → mark "no footing" (can't dig — buried pipe/
   // utility) on any painted cell. The framing plan then shifts posts off these cells.
-  if (e.altKey && e.button === 0) {
+  if ((e.altKey || markMode === 'nodig') && e.button === 0) {
     if (!grid[r]?.[c]) return;
     noFootingDragValue = !noFootingCells.some(nc => nc.r === r && nc.c === c);
     noFootingDragging  = true;
@@ -4399,6 +4417,80 @@ document.addEventListener('mouseup', () => {
   isDown = false;
 });
 document.getElementById('deckGrid').addEventListener('contextmenu', e => e.preventDefault());
+
+// ─── Mark-mode buttons (touch substitute for Ctrl/Shift/Alt) ───────
+document.querySelectorAll('#markModeBtns .tbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    markMode = markMode === btn.dataset.mark ? '' : btn.dataset.mark;   // tap again to turn off
+    document.querySelectorAll('#markModeBtns .tbtn')
+      .forEach(b => b.classList.toggle('active', b.dataset.mark === markMode));
+  });
+});
+
+// ─── Touch painting (iPhone/iPad) ───────────────────────────────────
+// Mirrors the mouse flow: touchstart = mousedown (left), moving finger paints the
+// cell under it (touch doesn't fire mouseover), touchend = mouseup. The cell is
+// resolved with elementFromPoint since touchmove targets the start element.
+// CSS touch-action:none on #deckGrid stops the page scrolling mid-paint.
+{
+  const gridEl = document.getElementById('deckGrid');
+  const cellAt = t => document.elementFromPoint(t.clientX, t.clientY)?.closest('#deckGrid .cell');
+  gridEl.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;                 // pinch = let the browser zoom
+    const cell = cellAt(e.touches[0]);
+    if (!cell) return;
+    e.preventDefault();
+    const r = +cell.dataset.r, c = +cell.dataset.c;
+    if (markMode === 'stair') {
+      if (!grid[r]?.[c]) return;
+      stairDragValue = !stairCells.some(sc => sc.r === r && sc.c === c);
+      stairDragging = true;
+      if (setStairEntry(r, c, stairDragValue)) { updateStairCellDisplay(); render(); }
+      return;
+    }
+    if (markMode === 'norail') {
+      if (!grid[r]?.[c]) return;
+      noRailDragValue = !noRailCells.some(nc => nc.r === r && nc.c === c);
+      noRailDragging = true;
+      if (setNoRail(r, c, noRailDragValue)) { updateNoRailDisplay(); render(); }
+      return;
+    }
+    if (markMode === 'nodig') {
+      if (!grid[r]?.[c]) return;
+      noFootingDragValue = !noFootingCells.some(nc => nc.r === r && nc.c === c);
+      noFootingDragging = true;
+      if (setNoFooting(r, c, noFootingDragValue)) { updateNoFootingDisplay(); render(); }
+      return;
+    }
+    if (areaEraseMode || areaFillMode) {
+      areaSelDown = true;
+      areaSelR0 = areaSelR1 = r; areaSelC0 = areaSelC1 = c;
+      updateAreaSel(r, c);
+      return;
+    }
+    isDown = true;
+    paintValue = paintMode ? true : false;
+    paintCell(r, c, paintValue);
+  }, { passive: false });
+  gridEl.addEventListener('touchmove', e => {
+    if (e.touches.length !== 1) return;
+    const cell = cellAt(e.touches[0]);
+    if (!cell) return;
+    e.preventDefault();
+    const r = +cell.dataset.r, c = +cell.dataset.c;
+    if (noRailDragging)      { if (setNoRail(r, c, noRailDragValue))         { updateNoRailDisplay(); render(); }    return; }
+    if (stairDragging)       { if (setStairEntry(r, c, stairDragValue))      { updateStairCellDisplay(); render(); } return; }
+    if (noFootingDragging)   { if (setNoFooting(r, c, noFootingDragValue))   { updateNoFootingDisplay(); render(); } return; }
+    if (areaEraseMode || areaFillMode) { if (areaSelDown) updateAreaSel(r, c); return; }
+    if (!isDown) return;
+    paintCell(r, c, paintValue);
+  }, { passive: false });
+  // Lifting the finger finishes exactly like releasing the mouse button — the
+  // document-level mouseup handler owns that logic, so just invoke it.
+  const endTouch = () => document.dispatchEvent(new Event('mouseup'));
+  gridEl.addEventListener('touchend', endTouch);
+  gridEl.addEventListener('touchcancel', endTouch);
+}
 
 // ─── Toolbar ───────────────────────────────────────────────────────
 document.getElementById('cellSizeBtns').addEventListener('click', e => {
@@ -6304,7 +6396,7 @@ function render() {
   const matBase     = (matLumber * SF.lumber + matDecking * SF.decking + matConcrete * SF.concrete
                     + matHardware * SF.hardware + matOther * SF.other) * locFactor;
   // Flat truck/bulk delivery, one fee per truckload of lumber & deck boards.
-  const deliveryLf    = (F.totalLf || 0) + (DECK.purchasedLf || 0);
+  const deliveryLf    = (F.totalLf || 0) + (LUMBER[0].spliceLapLf || 0) + (DECK.purchasedLf || 0);
   const deliveryLoads = Math.max(1, Math.ceil(deliveryLf / STORE.delivery.loadLf));
   const delivery      = +(STORE.delivery.flat * deliveryLoads).toFixed(2);
   const matTotal      = matBase + delivery + (DEMO ? DEMO.dumpsterCost : 0);   // dumpster = a hard disposal cost
@@ -6721,9 +6813,9 @@ function render() {
       ${cRow('Footing depth', `24&Prime; min below grade to solid bearing (frost line)`, true)}
     </div>
 
-    <div class="section-title">Framing Lumber (${F.totalLf} lf) <small style="font-weight:400;color:var(--muted)">— PT, No. 2 grade (SP #2) · bounding box ${spanW}'×${spanH}'</small></div>
+    <div class="section-title">Framing Lumber (${(F.totalLf || 0) + Math.round(jL.spliceLapLf || 0)} lf) <small style="font-weight:400;color:var(--muted)">— PT, No. 2 grade (SP #2) · bounding box ${spanW}'×${spanH}'</small></div>
     ${subline(`Rim joists (${rimSize})`, `${F.rimLf} lf`)}
-    ${subline(`Joists (${F.joists} × ${joistSize} @ ${spacing}" OC · ${fmtFtIn(maxJoistSpan)} span${joistLfActual !== null ? ' · cut to deck shape' : ''})`, `${F.joistLf} lf total`)}
+    ${subline(`Joists (${F.joists} × ${joistSize} @ ${spacing}" OC · ${fmtFtIn(maxJoistSpan)} span${joistLfActual !== null ? ' · cut to deck shape' : ''})`, `${(F.joistLf + (jL.spliceLapLf || 0)).toFixed(0)} lf total${jL.spliceLapLf > 0.05 ? ` · incl. ${jL.spliceLapLf.toFixed(1)} lf splice overlap` : ''}`)}
     ${F.compJoists > 0 ? subline(`Board-end joists (${F.compJoists} × ${joistSize} · back deck-board ends at interior edges)`, `${F.compJoistLf} lf`) : ''}
     ${subline(`Beam${F.beamCount > 1 ? 's' : ''} (${F.beamCount} × ${beamPlies}-ply ${beamDepth})`, `${F.beamLf} lf`)}
     ${subline(`Posts (${postSizeReq} × ${footingType === 'pad' ? `${Math.round(postBuryFt * 12)}&Prime; buried + ${aboveSpan}' above collar` : `${beamTopSpan}' to beam top`}${postSlopeVaries ? ' · sloped' : ''} ×${posts} · ${(postBuy.lines || []).map(l => `${l.count}×${l.stock}'${l.perBoard > 1 ? ` (${l.perBoard} cut/bd)` : ''}`).join(' + ') || `${postBuy.boards} × ${postBuy.stock}'`} stock)`, `${F.postLf} lf`)}
@@ -10225,6 +10317,37 @@ function init3D() {
     e.preventDefault();
   }, { passive:false });
 
+  // Touch (iPhone/iPad): 1 finger orbits, 2 fingers pinch-zoom + pan.
+  canvas.style.touchAction = 'none';
+  let tPrev = null;   // [{x,y}] of the previous frame's touches
+  const tPts = e => [...e.touches].map(t => ({ x: t.clientX, y: t.clientY }));
+  const tDist = p => Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  const tMid  = p => ({ x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 });
+  canvas.addEventListener('touchstart', e => { tPrev = tPts(e); e.preventDefault(); }, { passive: false });
+  canvas.addEventListener('touchmove', e => {
+    const now = tPts(e);
+    if (!tPrev || tPrev.length !== now.length) { tPrev = now; return; }
+    if (now.length === 1) {                       // orbit (same math as right-drag)
+      const dx = now[0].x - tPrev[0].x, dy = now[0].y - tPrev[0].y;
+      theta -= dx * 0.008;
+      phi = Math.max(0.08, Math.min(Math.PI - 0.08, phi + dy * 0.005));
+    } else if (now.length >= 2) {                 // pinch = zoom, midpoint drift = pan
+      const scale = tDist(tPrev) / tDist(now);
+      radius = Math.max(4, Math.min(100, radius * scale));
+      const m0 = tMid(tPrev), m1 = tMid(now);
+      const k = radius * 0.0016;
+      const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+      const right = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
+      const up    = new THREE.Vector3().crossVectors(right, dir).normalize();
+      pan.addScaledVector(right, -(m1.x - m0.x) * k).addScaledVector(up, (m1.y - m0.y) * k);
+    }
+    tPrev = now;
+    updateCam();
+    e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('touchend',    e => { tPrev = e.touches.length ? tPts(e) : null; });
+  canvas.addEventListener('touchcancel', () => { tPrev = null; });
+
   // W/S move the camera up/down; A/D move it left/right relative to the
   // current view heading. Zooming is on the scroll wheel. Handler is
   // replaced on each init so re-opening the modal never stacks listeners.
@@ -10271,6 +10394,19 @@ function init3D() {
 }
 
 document.addEventListener('keydown', e => { if (e.key==='Escape') close3DPreview(); });
+
+// ── PWA service worker ──────────────────────────────────────────────
+// Registered on the real (HTTPS) host so the app installs to the iPhone home
+// screen and runs offline. SKIPPED on localhost dev previews (stale-cache
+// footgun while iterating) unless ?pwa=1 explicitly opts in for testing.
+(() => {
+  if (!('serviceWorker' in navigator)) return;
+  const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+  const optIn   = new URLSearchParams(location.search).has('pwa');
+  if (location.protocol !== 'https:' && !isLocal) return;   // SW needs a secure context
+  if (isLocal && !optIn) return;                            // keep dev previews cache-free
+  navigator.serviceWorker.register('sw.js').catch(() => {}); // non-fatal — app runs fine without it
+})();
 </script>
 </body>
 </html>

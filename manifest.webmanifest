@@ -1,0 +1,16 @@
+{
+  "name": "Deck Build Estimator",
+  "short_name": "Deck Est",
+  "description": "Deck design, framing plan, 3D preview, bill of materials, cut sheet and labor estimate — offline-capable.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#14161b",
+  "theme_color": "#14161b",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
