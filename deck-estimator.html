@@ -403,7 +403,9 @@
   .modal3d-bar span { color:var(--text); font-weight:600; font-size:.95rem; }
   .modal3d-bar button { background:none; border:none; color:var(--muted); font-size:1.5rem; cursor:pointer; line-height:1; padding:0 6px; }
   .modal3d-bar button:hover { color:var(--text); }
-  #canvas3d { flex:1; width:100%; display:block; cursor:grab; outline:none; }
+  /* min-height/width:0 — without inline sizes (setSize updateStyle=false) the canvas's
+     intrinsic buffer size would act as min-content and blow the flex layout open. */
+  #canvas3d { flex:1; width:100%; min-height:0; min-width:0; display:block; cursor:grab; outline:none; }
   #canvas3d:active { cursor:grabbing; }
 
   /* ── Label panel collapse (tap "Labels" to fold the list away — vital on phones
@@ -416,9 +418,11 @@
   #labelPanel3d.lp-collapsed .lp-title { margin-bottom:0; }
   .help-touch { display:none; }   /* touch gesture help — shown only at phone widths */
 
-  /* ── Phone layout (iPhone PWA) ─────────────────────────────────── */
-  @media (max-width: 700px) {
-    body { padding:.5rem .3rem; }
+  /* ── Phone layout (iPhone PWA) ───────────────────────────────────
+        max-width catches portrait; max-height catches the SAME phone rotated
+        to landscape (812×375 — wide but short), where width alone would miss. */
+  @media (max-width: 700px), (max-height: 500px) {
+    body { padding:.5rem .3rem; padding-left:max(.3rem, env(safe-area-inset-left)); padding-right:max(.3rem, env(safe-area-inset-right)); }
     h1 { font-size:1.15rem; }
     .subtitle { margin-bottom:.8rem; }
     .layout { gap:.75rem; }
@@ -8190,8 +8194,9 @@ function _bindLabelPanel() {
 function open3DPreview() {
   document.getElementById('modal3d').classList.add('open');
   _bindLabelPanel();     // wire the label-category checkboxes (once)
-  // Phones: start with the label panel folded so the render owns the screen.
-  document.getElementById('labelPanel3d')?.classList.toggle('lp-collapsed', window.innerWidth < 700);
+  // Phones (either orientation): start with the label panel folded so the render
+  // owns the screen — landscape is WIDE but short, so height matters too.
+  document.getElementById('labelPanel3d')?.classList.toggle('lp-collapsed', window.innerWidth < 700 || window.innerHeight < 500);
   setTimeout(init3D, 0); // defer until modal layout is painted
 }
 
@@ -8656,7 +8661,10 @@ function init3D() {
   if (_renderer3d) _renderer3d.dispose();
   _renderer3d = new THREE.WebGLRenderer({ canvas, antialias: true });
   window._renderer3d = _renderer3d;   // exposed for debugging/print capture
-  _renderer3d.setSize(W, H);
+  // updateStyle=false: keep the canvas sized by CSS (flex/width:100%). setSize's
+  // default writes INLINE width/height styles that pin the old size — on a phone
+  // ROTATION the canvas then can't follow the modal and the view distorts.
+  _renderer3d.setSize(W, H, false);
   _renderer3d.setPixelRatio(Math.min(devicePixelRatio, 2));
 
   const scene  = new THREE.Scene();
@@ -10426,8 +10434,12 @@ function init3D() {
   // Resize
   const ro = new ResizeObserver(() => {
     const W2=canvas.clientWidth, H2=canvas.clientHeight;
+    if (!W2 || !H2 || !_renderer3d) return;
     camera.aspect=W2/H2; camera.updateProjectionMatrix();
-    _renderer3d && _renderer3d.setSize(W2, H2);
+    // Re-assert the pixel ratio, THEN size — keeps the drawing buffer at retina
+    // density after a phone rotation; updateStyle=false leaves sizing to CSS.
+    _renderer3d.setPixelRatio(Math.min(devicePixelRatio, 2));
+    _renderer3d.setSize(W2, H2, false);
   });
   ro.observe(canvas);
 
