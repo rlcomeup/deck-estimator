@@ -5690,19 +5690,36 @@ function buildCutSheet(LUMBER, F, joistSize, beamDepth, beamPlies, postLenFt, po
     else { const z = _bpM[_mi++]; if (z != null) placedBeams.push({ z, supp: false, _p: pcs }); }
   });
   // Posts — each post's ACTUAL length (a sloped site raises the corner posts by their ground
-  // drop, postExtra[i], in the SAME order as bp.posts), and the stock it needs = the smallest
-  // POST_STOCK_LENGTHS ≥ that length — exactly what optimizePostsVar buys per length-bucket. So
-  // a 10' board is a TALL post, not a short one. Numbered by stock (tallest first) → the list
-  // ranges stay contiguous, and the placed post (drawing) carries the same number at its spot.
+  // drop, postExtra[i], in the SAME order as bp.posts). The board a post is cut FROM must come
+  // from the OPTIMIZER'S OWN PACKING, not "smallest stock ≥ this post": short posts (e.g. a 30"
+  // deck) pack SEVERAL per board, and the DP may buy 16'/12'/10' boards no single-post guess
+  // predicts — that guess pointed every post at one board # and left the other purchased boards
+  // with no posts (mis-colored cut sheet). Reproduce the buy exactly: bucket lengths to the inch
+  // like optimizePostsVar (uniform → one raw-length bucket like calcFraming's optimizePosts call),
+  // run the SAME optimizePosts DP per bucket, and deal each line's count × perBoard cuts to the
+  // posts in order — post board #s then match F.postBuy's legend lines one for one.
   const posts = []; const placedPosts = [];
   const _bpP = (bp && bp.posts) || [];
-  const _postStock = L => POST_STOCK_LENGTHS.find(S => S + 1e-6 >= L) || POST_STOCK_LENGTHS[POST_STOCK_LENGTHS.length - 1];
-  const _raw = [];
-  for (let i = 0; i < (postCount || 0); i++) {
-    const len = (postLenFt || 0) + Math.max(0, (postExtra && postExtra[i]) || 0);
-    _raw.push({ idx: i, len, stock: _postStock(len) });
-  }
-  _raw.sort((a, b) => b.stock - a.stock || a.idx - b.idx);   // tallest stock first → P1.. are the tall posts
+  const uniform = !postLenMaxFt || Math.abs((postLenMaxFt || 0) - (postLenFt || 0)) < 0.05;   // level site → all posts one length
+  const _lens = [];
+  for (let i = 0; i < (postCount || 0); i++)
+    _lens.push((postLenFt || 0) + Math.max(0, (postExtra && postExtra[i]) || 0));
+  const _buckets = new Map();
+  _lens.forEach((L, idx) => {
+    const key = uniform ? 'u' : (Math.ceil(L * 12) / 12).toFixed(3);
+    if (!_buckets.has(key)) _buckets.set(key, { len: uniform ? (postLenFt || 0) : Math.ceil(L * 12) / 12, idxs: [] });
+    _buckets.get(key).idxs.push(idx);
+  });
+  const _stockOf = new Array(_lens.length).fill(POST_STOCK_LENGTHS[POST_STOCK_LENGTHS.length - 1]);
+  _buckets.forEach(b => {
+    const buy = optimizePosts(b.idxs.length, b.len);          // the SAME DP the BOM ran
+    const seq = [];
+    (buy.lines || []).forEach(l => { for (let k = 0; k < l.count; k++) for (let q = 0; q < l.perBoard && seq.length < b.idxs.length; q++) seq.push(l.stock); });
+    b.idxs.sort((p, q) => _lens[q] - _lens[p]);               // longest cuts onto the longest boards
+    b.idxs.forEach((idx, j) => { _stockOf[idx] = seq[j] ?? seq[seq.length - 1] ?? _stockOf[idx]; });
+  });
+  const _raw = _lens.map((len, idx) => ({ idx, len, stock: _stockOf[idx] }));
+  _raw.sort((a, b) => b.stock - a.stock || b.len - a.len || a.idx - b.idx);   // tallest stock first → P1.. are the tall posts
   let _pc = 0;
   _raw.forEach(rp => {
     const id = `P${++_pc}`, nn = ensure('6×6', rp.stock);
