@@ -3869,6 +3869,16 @@ function optimizeConcreteBags(cf, minPsi = 3000) {
     counts[opts[i].lb] = (counts[opts[i].lb] || 0) + 1;
     v = Math.max(0, v - cells[i]);
   }
+  // ROUND-UP RULE (user): the purchase is WHOLE LARGEST BAGS ONLY — the remainder is
+  // rounded UP to one more 80-lb bag instead of being covered with 60/40-lb tail bags
+  // ("just one more 80 pound bag and left over concrete"). The overshoot is a usable
+  // pour buffer. Smaller bags are bought only when the ENTIRE job needs less than one
+  // largest bag (there, the small bag IS the round-up).
+  const big = opts[0];   // opts is sorted yield-desc → [0] is the largest bag
+  if (cf >= big.yieldCf - 1e-9) {
+    for (const b of opts.slice(1)) delete counts[b.lb];
+    counts[big.lb] = Math.ceil(cf / big.yieldCf - 1e-9);
+  }
   let totalBags = 0, cost = 0, yieldCf = 0;
   const lines = [];
   opts.forEach(b => {
@@ -6990,13 +7000,13 @@ function render() {
     ${line('Field treatment cost', usd(CN.cost), 'cost')}
 
     ${concreteCfTotal > 0 ? `
-    <div class="section-title">Concrete <small style="font-weight:400;color:var(--muted)">— ≥3000 psi mix · pooled across every footing · cheapest bag mix</small></div>
+    <div class="section-title">Concrete <small style="font-weight:400;color:var(--muted)">— ≥3000 psi mix · pooled across every footing · whole 80-lb bags, rounded up</small></div>
     ${subline(`Deck footings — ${C.count} × ~${C.cfEa} cf each (code base + stem)`, `${concreteCfDeck.toFixed(2)} cf`)}
     ${LAND ? subline(`Stair stringer footing${stairFlights > 1 ? 's' : ''}`, `${concreteCfStair.toFixed(2)} cf`) : ''}
     ${subline(`<b>Total concrete needed</b>`, `<b>${concreteCfTotal.toFixed(2)} cf</b>`)}
     ${CONC.lines.map(l => subline(`&nbsp;&nbsp;↳ ${l.lb} lb bag (${l.psi} psi ≥ 3000) @ ${usd(l.price)}`, `${l.count} × = ${(l.count * l.yieldCf).toFixed(2)} cf`)).join('')}
-    ${subline(`Cheapest purchase — ${CONC.totalBags} bag${CONC.totalBags !== 1 ? 's' : ''} yielding ${CONC.yieldCf} cf`, `covers ${concreteCfTotal.toFixed(2)} cf`)}
-    ${line('Concrete cost (optimized ≥3000 psi)', usd(CONC.cost), 'cost')}
+    ${subline(`Purchase — ${CONC.totalBags} bag${CONC.totalBags !== 1 ? 's' : ''} yielding ${CONC.yieldCf} cf (rounded up${CONC.yieldCf - concreteCfTotal > 0.01 ? ` · ${(CONC.yieldCf - concreteCfTotal).toFixed(2)} cf leftover pour buffer` : ''})`, `covers ${concreteCfTotal.toFixed(2)} cf`)}
+    ${line('Concrete cost (≥3000 psi)', usd(CONC.cost), 'cost')}
     ` : ''}
 
     <div class="section-title">Drainage Gravel <small style="font-weight:400;color:var(--muted)">— ${GV.depthIn}&Prime; layer of #57 stone under ${sqFt} sq ft</small></div>
