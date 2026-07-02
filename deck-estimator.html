@@ -5374,12 +5374,14 @@ function splitFlightSteps(riseIn, stepRiseIn) {
 function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPriceLf, digAuger) {
   const wFt = Math.max(3, widthIn / 12), dFt = LANDING_TRAVEL_FT;
   const p28 = FRAMING_PRICE_LF['2x8'] ?? FRAMING_PER_LF;
-  // Frame: two band boards across the width + joists spanning the travel depth.
+  // Frame like the deck itself: TWO 2-ply 2×8 BEAMS across the stair width (one at
+  // each end of travel, bearing on the post pairs) + 2×8 JOISTS spanning the travel
+  // depth between them @ 16" o.c. (both edge joists counted).
   const nJoist   = Math.ceil((widthIn) / LANDING_JOIST_OC_IN) + 1;
-  const bandBuy  = optimizePosts(2, wFt, p28, 0, STOCK_LENGTHS);
+  const beamBuy  = optimizePosts(4, wFt, p28, 0, STOCK_LENGTHS);        // 2 beams × 2 plies
   const joistBuy = optimizePosts(nJoist, dFt, p28, 0, STOCK_LENGTHS);
-  // 4 support posts: platform top − decking (1") − 2×8 frame (7¼"), +6" trim buffer.
-  const postLen  = Math.max(1, platformTopFt - (1 + 7.25) / 12) + 0.5;
+  // 4 support posts: platform top − decking (1") − joist (7¼") − beam (7¼"), +6" trim buffer.
+  const postLen  = Math.max(1, platformTopFt - (1 + 7.25 + 7.25) / 12) + 0.5;
   const postBuy  = optimizePosts(4, postLen, POST_PER_LF, 0.03, POST_STOCK_LENGTHS);
   // Footings: 4 × 10"Ø tubes to the deck's footing depth — concrete pooled by the caller.
   const fDepthFt   = Math.max(2, (footDepthIn || 36) / 12);
@@ -5396,12 +5398,12 @@ function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPr
   const guardCost = guarded ? +(guardLf * (railPriceLf || 0)).toFixed(2) : 0;
   const newelBuy  = guarded ? optimizePosts(4, STAIR_NEWEL_FT, RAILING_POST_LF_PRICE, 0, STOCK_LENGTHS)
                             : { boards: 0, lines: [], cost: 0 };
-  const lumberCost = +(bandBuy.cost + joistBuy.cost + postBuy.cost + newelBuy.cost + guardCost).toFixed(2);
+  const lumberCost = +(beamBuy.cost + joistBuy.cost + postBuy.cost + newelBuy.cost + guardCost).toFixed(2);
   const laborHours = +(4 * (digAuger ? 0.5 : 2.5)   // dig 4 footings
                      + 4 * 0.4                      // set + plumb posts
                      + 2.5                          // frame + deck the platform
                      + (guarded ? 1.0 : 0)).toFixed(1);
-  return { wFt, dFt, nJoist, bandBuy, joistBuy, postLen: +postLen.toFixed(1), postBuy,
+  return { wFt, dFt, nJoist, beamBuy, joistBuy, postLen: +postLen.toFixed(1), postBuy,
            concreteCf, tubeSticks, tubeCost, baseCost, deckLf, deckCost,
            guarded, guardLf, guardCost, newelBuy, lumberCost, laborHours };
 }
@@ -6394,7 +6396,7 @@ function render() {
     guardCost:  +MIDLs.reduce((s, m) => s + m.guardCost, 0).toFixed(2),
     posts:       4 * MIDLs.length,
     postLen:     Math.max(...MIDLs.map(m => m.postLen)),
-    bandBuy:     mergeBuys(MIDLs.map(m => m.bandBuy)),
+    beamBuy:     mergeBuys(MIDLs.map(m => m.beamBuy)),
     joistBuy:    mergeBuys(MIDLs.map(m => m.joistBuy)),
     postBuy:     mergeBuys(MIDLs.map(m => m.postBuy)),
     newelBuy:    mergeBuys(MIDLs.map(m => m.newelBuy)),
@@ -6797,8 +6799,8 @@ function render() {
   }
   // Mid-flight stair LANDING platform (tall flight split — concrete pooled above)
   if (MIDL) {
-    MIDL.bandBuy.lines.forEach(l =>
-      addBom(`Stair landing — 2×8 PT band — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * (FRAMING_PRICE_LF['2x8'] ?? FRAMING_PER_LF)));
+    MIDL.beamBuy.lines.forEach(l =>
+      addBom(`Stair landing — 2-ply 2×8 PT beams (2 per landing, on the posts) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * (FRAMING_PRICE_LF['2x8'] ?? FRAMING_PER_LF)));
     MIDL.joistBuy.lines.forEach(l =>
       addBom(`Stair landing — 2×8 PT joists (@ ${LANDING_JOIST_OC_IN}&Prime; o.c.) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * (FRAMING_PRICE_LF['2x8'] ?? FRAMING_PER_LF)));
     addBom(`Stair landing — surface decking (${ST.treadLabel})`, MIDL.deckLf, 'lf', species.price);
@@ -7185,7 +7187,7 @@ function render() {
     ` : ''}
     ${MIDL ? `
     <div style="margin-top:4px;font-size:11px;color:#f97316">Mid-flight landing required — a single flight would exceed ${MAX_FLIGHT_RISE_IN}&Prime; rise (IRC R311.7.3) or the longest 2×12 stringer stock; each tall flight is split with a framed landing platform</div>
-    ${subline(`Landing platform${MIDL.count > 1 ? `s ×${MIDL.count}` : ''} (stair-width × ${LANDING_TRAVEL_FT}′ — 2×8 PT frame @ ${LANDING_JOIST_OC_IN}&Prime; o.c. + ${ST.treadLabel} surface)`, `${MIDL.bandBuy.lines.concat(MIDL.joistBuy.lines).map(l => `${l.count}×${l.stock}′`).join(' + ')} + ${MIDL.deckLf} lf decking`)}
+    ${subline(`Landing platform${MIDL.count > 1 ? `s ×${MIDL.count}` : ''} (stair-width × ${LANDING_TRAVEL_FT}′ — 2 × 2-ply 2×8 beams on the posts + 2×8 joists @ ${LANDING_JOIST_OC_IN}&Prime; o.c. + ${ST.treadLabel} surface)`, `${MIDL.beamBuy.lines.concat(MIDL.joistBuy.lines).map(l => `${l.count}×${l.stock}′`).join(' + ')} + ${MIDL.deckLf} lf decking`)}
     ${subline(`Landing support posts (${MIDL.posts} × 6×6 PT, ~${MIDL.postLen}′ — on ${LANDING_TUBE_DIA_IN}&Prime; tube footings)`, `${MIDL.postBuy.lines.map(l => `${l.count}×${l.stock}′`).join(' + ')} stock · ${MIDL.concreteCf} cf pooled above`)}
     ${MIDL.guarded ? subline(`Landing guard (2 open sides, ${railType.label})`, `${MIDL.guardLf} lf + ${MIDL.posts} newels`) : ''}
     ${line('Landing platform material', usd(MIDL.lumberCost + MIDL.deckCost + MIDL.tubeCost + MIDL.baseCost), 'cost')}
@@ -10317,31 +10319,40 @@ function init3D() {
           : new THREE.BoxGeometry(stairWFt, treadH, LAND_D), deckMat);
         slab.position.set(horiz ? midAlong : sCX, surfY - treadH / 2, horiz ? sCZ : midAlong);
         scene.add(slab);
-        // 2×8 band around the platform (two rims across the width + two side rails)
-        const bandTopY = surfY - treadH, bandY = bandTopY - frameH / 2;
-        const mkBand = (cx, cz, alongLen, acrossLen) => {
-          const b = new THREE.Mesh(horiz
-            ? new THREE.BoxGeometry(alongLen, frameH, acrossLen)
-            : new THREE.BoxGeometry(acrossLen, frameH, alongLen), frameMat);
-          b.position.set(horiz ? cx : cz, bandY, horiz ? cz : cx);
-          scene.add(b);
-        };
-        mkBand(flightEdge + dirSign * (d0 + frameT / 2), horiz ? sCZ : sCX, frameT, stairWFt);   // near rim
-        mkBand(flightEdge + dirSign * (d1 - frameT / 2), horiz ? sCZ : sCX, frameT, stairWFt);   // far rim
-        [-1, 1].forEach(so => {
-          const across = (horiz ? sCZ : sCX) + so * (stairWFt / 2 - frameT / 2);
-          mkBand(midAlong, across, LAND_D, frameT);                                              // side rails
+        // FRAME like the deck itself: 2×8 JOISTS spanning the travel direction @ 16" o.c.
+        // (tops tight under the decking, both edge joists included — matches the BOM's
+        // nJoist), bearing on TWO 2-ply 2×8 BEAMS that run across the stair width on the
+        // support posts (one beam at each end of travel).
+        const joistTopY = surfY - treadH, joistY = joistTopY - frameH / 2;
+        const nJo = Math.ceil((stairWFt * 12) / LANDING_JOIST_OC_IN) + 1;
+        for (let j = 0; j < nJo; j++) {
+          const a = -stairWFt / 2 + frameT / 2 + (stairWFt - frameT) * (nJo === 1 ? 0.5 : j / (nJo - 1));
+          const across = (horiz ? sCZ : sCX) + a;
+          const jb = new THREE.Mesh(horiz
+            ? new THREE.BoxGeometry(LAND_D, frameH, frameT)
+            : new THREE.BoxGeometry(frameT, frameH, LAND_D), frameMat);
+          jb.position.set(horiz ? midAlong : across, joistY, horiz ? across : midAlong);
+          scene.add(jb);
+        }
+        const beamTopY = joistTopY - frameH, beamY = beamTopY - frameH / 2, beamT = 2 * frameT;
+        [d0 + 0.5, d1 - 0.5].forEach(dd => {
+          const along = flightEdge + dirSign * dd;
+          const bb = new THREE.Mesh(horiz
+            ? new THREE.BoxGeometry(beamT, frameH, stairWFt)
+            : new THREE.BoxGeometry(stairWFt, frameH, beamT), frameMat);
+          bb.position.set(horiz ? along : sCX, beamY, horiz ? sCZ : along);
+          scene.add(bb);
         });
-        // 4 × 6×6 posts (inset from the corners) down to the ground under the platform,
-        // each on a 10" tube footing to depth — the concrete pooled in the estimate.
-        const postInA = 0.6, postInB = 0.5;
+        // 4 × 6×6 posts UNDER THE BEAM ENDS down to the ground, each on a 10" tube
+        // footing to depth — the concrete pooled in the estimate.
+        const postInA = 0.5, postInB = 0.5;                            // = the beam inset → posts sit under the beams
         const fDepth3d = (+document.getElementById('footingDepth')?.value || 36) / 12;
         [d0 + postInA, d1 - postInA].forEach(dd => [-1, 1].forEach(so => {
           const along  = flightEdge + dirSign * dd;
           const across = (horiz ? sCZ : sCX) + so * (stairWFt / 2 - postInB);
           // ground under the platform ≈ the flight-foot drop scaled to this position
           const gdP  = flightDropFt * Math.min(1, dd / Math.max(0.1, steps * stepRun + LAND_D));
-          const topY = bandTopY - frameH;                              // posts stop under the frame
+          const topY = beamTopY - frameH;                              // posts stop at the BEAM underside
           const post = new THREE.Mesh(new THREE.BoxGeometry(postWk, Math.max(0.2, topY + gdP), postWk), frameMat);
           post.position.set(horiz ? along : across, (topY - gdP) / 2, horiz ? across : along);
           scene.add(post);
