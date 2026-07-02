@@ -3067,70 +3067,74 @@ function computeDeckingLayout() {
   const overJoist = x => joistXs.some(jx => Math.abs(jx - x) < boardW / 2 + 1e-6);   // joist under the breaker footprint
   const MIN_FIELD_SPAN = 1.5;   // ft — field sections shorter than this read as slivers
 
-  // Each region picks its planes by a small DP over a MIXED candidate pool, strongly
-  // preferring NATURAL break lines — the Xs where the deck changes dimension (interior
-  // corners / cascade steps, divideXs) — so a breaker reads as intentional geometry
-  // rather than an arbitrary seam. Per-plane cost (lower is better):
-  //   on a dimension-change line  −150   (natural break — the user-visible ideal)
-  //   on a joist-bay centre        −10   (cheapest blocking)
-  //   even-grid fallback             0
-  //   footprint over a joist      +100   (needs blocking in BOTH bays)
+  // FEWEST BREAKS FIRST: every region uses the hard MINIMUM plane count
+  // (nSeg−1 = ceil(len/stock)−1 — never an extra breaker), and regions are solved
+  // longest-first so later regions REUSE an already-chosen plane X whenever one
+  // satisfies their constraints — two long areas then share ONE breaker line
+  // instead of cutting the deck twice. Fewer breaks = longer deck-board runs.
+  // Among minimum-count layouts, each plane picks its spot by a small DP over a
+  // MIXED candidate pool. Per-plane cost (lower is better):
+  //   reuses a plane another region chose  −400   (no new break on the deck)
+  //   on a dimension-change line           −150   (natural break at a corner/step)
+  //   on a joist-bay centre                 −10   (cheapest blocking)
+  //   even-grid fallback                      0
+  //   footprint over a joist               +100   (needs blocking in BOTH bays)
   // plus the existing sliver penalties on short field sections. A natural line nets
-  // −50 even when it sits over a joist, so corners beat plain bay centres. The DP may
-  // also elect ONE EXTRA plane (nSeg+1) when that lands the breaks on natural lines —
-  // surcharged +90 (a real breaker board + blocking) so it only wins when clearly better.
-  const NATURAL_BONUS = -150, BAY_BONUS = -10, OVERJOIST_PEN = 100, EXTRA_PLANE_PEN = 90;
+  // −50 even when it sits over a joist, so corners still beat plain bay centres.
+  const SHARED_BONUS = -400, NATURAL_BONUS = -150, BAY_BONUS = -10, OVERJOIST_PEN = 100;
+  const chosenXs = [];   // planes picked so far (deck-wide) — later regions try to reuse them
+  regions.sort((a, b) => (b.xR - b.xL) - (a.xR - a.xL));
   regions.forEach(reg => {
     const len = reg.xR - reg.xL;
-    const nSegMin = Math.ceil(len / maxBoard);
-    if (nSegMin < 2) return;
+    const nSeg = Math.ceil(len / maxBoard);
+    if (nSeg < 2) return;
     const inReg = a => a.filter(v => v > reg.xL + 0.3 && v < reg.xR - 0.3);
-    const divs = inReg(divideXs), bays = inReg(bayCtrs);
+    const divs = inReg(divideXs), bays = inReg(bayCtrs), shared = inReg(chosenXs);
     const segPen = (w, isEnd) => (w < MIN_FIELD_SPAN ? (isEnd ? 80 : 40) * (MIN_FIELD_SPAN - w) : 0);
     // Optimal nP planes from the pooled candidates: every section ≤ one stock board,
     // planes ≥ a board width apart. best[i][k] = cheapest way to make candidate i the
     // k-th plane; reconstruct through prev[][].
-    const solve = nSeg => {
-      const nP = nSeg - 1;
-      const cmap = new Map();
-      const addC = (x, bonus) => { const k = +x.toFixed(3); if (!cmap.has(k) || bonus < cmap.get(k)) cmap.set(k, bonus); };
-      divs.forEach(x => addC(x, NATURAL_BONUS));
-      bays.forEach(x => addC(x, BAY_BONUS));
-      for (let k = 1; k < nSeg; k++) addC(reg.xL + len * k / nSeg, 0);
-      const cand = [...cmap.entries()].map(([x, bonus]) => ({ x, bonus })).sort((a, b) => a.x - b.x);
-      const N = cand.length;
-      const pc = i => cand[i].bonus + (overJoist(cand[i].x) ? OVERJOIST_PEN : 0);
-      const best = Array.from({ length: N }, () => new Array(nP + 1).fill(Infinity));
-      const prev = Array.from({ length: N }, () => new Array(nP + 1).fill(-1));
-      for (let i = 0; i < N; i++) {
-        const g0 = cand[i].x - reg.xL;
-        if (g0 >= boardW && g0 <= maxBoard + 1e-6) best[i][1] = pc(i) + segPen(g0, true);
-        for (let k = 2; k <= nP; k++)
-          for (let j = 0; j < i; j++) {
-            const g = cand[i].x - cand[j].x;
-            if (g < boardW || g > maxBoard + 1e-6 || best[j][k - 1] === Infinity) continue;
-            const c = best[j][k - 1] + pc(i) + segPen(g, false);
-            if (c < best[i][k] - 1e-9) { best[i][k] = c; prev[i][k] = j; }
-          }
-      }
-      let endI = -1, endC = Infinity;
-      for (let i = 0; i < N; i++) {
-        const gE = reg.xR - cand[i].x;
-        if (gE < boardW || gE > maxBoard + 1e-6 || best[i][nP] === Infinity) continue;
-        const c = best[i][nP] + segPen(gE, true);
-        if (c < endC - 1e-9) { endC = c; endI = i; }
-      }
-      if (endI < 0) return null;
-      const planes = [];
-      for (let i = endI, k = nP; k >= 1; i = prev[i][k], k--) planes.unshift(cand[i].x);
-      return { planes, cost: endC };
-    };
-    const base  = solve(nSegMin);
-    const extra = len / (nSegMin + 1) >= MIN_FIELD_SPAN ? solve(nSegMin + 1) : null;
-    const pick  = (extra && extra.cost + EXTRA_PLANE_PEN < (base ? base.cost : Infinity) - 1e-9) ? extra : (base || extra);
-    const chosen = pick ? pick.planes
-      : Array.from({ length: nSegMin - 1 }, (_, k) => reg.xL + len * (k + 1) / nSegMin);   // defensive even fallback
-    chosen.forEach(cx => seams.push({ x: +cx.toFixed(3), z: reg.z }));
+    const nP = nSeg - 1;
+    const cmap = new Map();
+    const addC = (x, bonus) => { const k = +x.toFixed(3); if (!cmap.has(k) || bonus < cmap.get(k)) cmap.set(k, bonus); };
+    for (let k = 1; k < nSeg; k++) addC(reg.xL + len * k / nSeg, 0);
+    bays.forEach(x => addC(x, BAY_BONUS));
+    divs.forEach(x => addC(x, NATURAL_BONUS));
+    shared.forEach(x => addC(x, SHARED_BONUS));   // added LAST → reuse beats every other tag at the same X
+    const cand = [...cmap.entries()].map(([x, bonus]) => ({ x, bonus })).sort((a, b) => a.x - b.x);
+    const N = cand.length;
+    const pc = i => cand[i].bonus + (overJoist(cand[i].x) ? OVERJOIST_PEN : 0);
+    const best = Array.from({ length: N }, () => new Array(nP + 1).fill(Infinity));
+    const prev = Array.from({ length: N }, () => new Array(nP + 1).fill(-1));
+    for (let i = 0; i < N; i++) {
+      const g0 = cand[i].x - reg.xL;
+      if (g0 >= boardW && g0 <= maxBoard + 1e-6) best[i][1] = pc(i) + segPen(g0, true);
+      for (let k = 2; k <= nP; k++)
+        for (let j = 0; j < i; j++) {
+          const g = cand[i].x - cand[j].x;
+          if (g < boardW || g > maxBoard + 1e-6 || best[j][k - 1] === Infinity) continue;
+          const c = best[j][k - 1] + pc(i) + segPen(g, false);
+          if (c < best[i][k] - 1e-9) { best[i][k] = c; prev[i][k] = j; }
+        }
+    }
+    let endI = -1, endC = Infinity;
+    for (let i = 0; i < N; i++) {
+      const gE = reg.xR - cand[i].x;
+      if (gE < boardW || gE > maxBoard + 1e-6 || best[i][nP] === Infinity) continue;
+      const c = best[i][nP] + segPen(gE, true);
+      if (c < endC - 1e-9) { endC = c; endI = i; }
+    }
+    let chosen;
+    if (endI >= 0) {
+      chosen = [];
+      for (let i = endI, k = nP; k >= 1; i = prev[i][k], k--) chosen.unshift(cand[i].x);
+    } else {
+      chosen = Array.from({ length: nP }, (_, k) => reg.xL + len * (k + 1) / nSeg);   // defensive even fallback
+    }
+    chosen.forEach(cx => {
+      if (!chosenXs.some(px => Math.abs(px - cx) < 1e-6)) chosenXs.push(cx);
+      seams.push({ x: +cx.toFixed(3), z: reg.z });
+    });
   });
 
   // ── Breaker boards: one CONTINUOUS course per seam plane, running the deck
