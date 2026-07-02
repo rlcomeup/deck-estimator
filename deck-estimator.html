@@ -346,6 +346,12 @@
     body.cutsheet-print #cutSheetView .cs-tbl th, body.cutsheet-print #cutSheetView .cs-tbl td { color:#111 !important; border-color:#ccc !important; }
     body.cutsheet-print #cutSheetView .cs-intro, body.cutsheet-print #cutSheetView .cs-tot, body.cutsheet-print #cutSheetView .cs-note { color:#444 !important; }
     body.cutsheet-print #cutSheetView .cs-drawing { page-break-inside:avoid; }
+    /* The board-group COLOURS are pill BACKGROUNDS — browsers strip background colours
+       in print by default, orphaning every part from its board. Force exact colours;
+       the matching inline BORDER on each pill is the belt-and-suspenders fallback
+       (borders always print, even with "background graphics" off). */
+    body.cutsheet-print #cutSheetView * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+    body.cutsheet-print #cutSheetView .cs-pill { color:#fff !important; }
   }
   .print-only { display:none; }   /* hidden on screen; revealed only when printing */
   /* ── Cut Sheet overlay (third output option: a numbered framing cut list) ── */
@@ -8637,7 +8643,7 @@ function showCutSheet() {
   const section = (title, rows) => {
     if (!rows.length) return '';
     const body = _cutGroups(rows).map(g =>
-      `<tr><td>${g.qty}</td><td>${_compressIds(g.ids)}</td><td><b>${fmtFtIn(g.cutLen)}</b></td><td><span class="cs-pill" style="background:${_cutColor(g.n)}">#${g.n}</span></td><td class="cs-note">${g.note || ''}</td></tr>`
+      `<tr><td>${g.qty}</td><td>${_compressIds(g.ids)}</td><td><b>${fmtFtIn(g.cutLen)}</b></td><td><span class="cs-pill" style="background:${_cutColor(g.n)};border:2px solid ${_cutColor(g.n)}">#${g.n}</span></td><td class="cs-note">${g.note || ''}</td></tr>`
     ).join('');
     return `<h4>${title} <span class="cs-tot">${rows.length} pcs</span></h4>
       <table class="cs-tbl"><thead><tr><th>Qty</th><th>Members</th><th>Cut to</th><th>Board #</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
@@ -8651,14 +8657,14 @@ function showCutSheet() {
     rows.forEach(r => { if (!map.has(r.n)) map.set(r.n, { n: r.n, ids: [], min: r.cutLen, max: r.cutLen }); const g = map.get(r.n); g.ids.push(r.id); g.min = Math.min(g.min, r.cutLen); g.max = Math.max(g.max, r.cutLen); });
     const body = [...map.values()].sort((a, b) => a.n - b.n).map(g => {
       const cut = Math.abs(g.max - g.min) < 0.04 ? fmtFtIn(g.max) : `${fmtFtIn(g.min)}–${fmtFtIn(g.max)}`;
-      return `<tr><td>${g.ids.length}</td><td>${_compressIds(g.ids)}</td><td><b>${cut}</b></td><td><span class="cs-pill" style="background:${_cutColor(g.n)}">#${g.n}</span></td><td class="cs-note">${g.min !== g.max ? 'field-cut to grade' : ''}</td></tr>`;
+      return `<tr><td>${g.ids.length}</td><td>${_compressIds(g.ids)}</td><td><b>${cut}</b></td><td><span class="cs-pill" style="background:${_cutColor(g.n)};border:2px solid ${_cutColor(g.n)}">#${g.n}</span></td><td class="cs-note">${g.min !== g.max ? 'field-cut to grade' : ''}</td></tr>`;
     }).join('');
     return `<h4>Posts <span class="cs-tot">${rows.length} pcs</span></h4>
       <table class="cs-tbl"><thead><tr><th>Qty</th><th>Members</th><th>Cut to</th><th>Board #</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
   };
   const legend = `<h4>Board Legend <span class="cs-tot">${data.legend.reduce((s, l) => s + l.qty, 0)} boards to buy</span></h4>
     <table class="cs-tbl cs-leg"><thead><tr><th>#</th><th>Dimension</th><th>Stock length</th><th>Buy</th></tr></thead><tbody>
-    ${data.legend.map(l => `<tr><td><span class="cs-pill" style="background:${_cutColor(l.n)}">#${l.n}</span></td><td>${String(l.dim).replace(/x/g, '×')}</td><td><b>${fmtFtIn(l.stockFt)}</b></td><td>${l.qty}</td></tr>`).join('')}
+    ${data.legend.map(l => `<tr><td><span class="cs-pill" style="background:${_cutColor(l.n)};border:2px solid ${_cutColor(l.n)}">#${l.n}</span></td><td>${String(l.dim).replace(/x/g, '×')}</td><td><b>${fmtFtIn(l.stockFt)}</b></td><td>${l.qty}</td></tr>`).join('')}
     </tbody></table>`;
   ov.innerHTML = `<div class="cs-box">
     <div class="cs-bar"><span>Cut Sheet — numbered framing cut list</span>
