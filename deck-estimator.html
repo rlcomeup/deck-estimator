@@ -5365,11 +5365,30 @@ function stairNeedsLanding(riseIn, stepRiseIn, stepRunIn) {
   const diagFt = Math.sqrt(runFt * runFt + riseFt * riseFt) + 0.5;   // calcStairs' stringer length
   return riseIn > MAX_FLIGHT_RISE_IN || diagFt > STOCK_LENGTHS[STOCK_LENGTHS.length - 1];
 }
-// Split N risers into an upper (deck-side) and lower flight. The LOWER flight takes
-// floor(N/2) so the landing sits at or below mid-height (shorter post run).
-function splitFlightSteps(riseIn, stepRiseIn) {
+// Split N risers into an upper (deck-side) and lower flight. The GUARD RAIL drives
+// the split: the rail from the deck must LAND ON THE LANDING in ONE section of the
+// chosen railing material, so if the balanced (mid-height) split leaves the upper
+// raked span longer than the product's longest section, the LANDING IS RAISED
+// (fewer upper steps) until the rail fits. Hard limit the rail must yield to: the
+// LOWER flight's stringer still has to come out of purchasable 2×12 stock.
+function splitFlightSteps(riseIn, stepRiseIn, stepRunIn = 11, railType = null) {
   const N = Math.max(1, Math.ceil(riseIn / stepRiseIn));
-  const L = Math.max(1, Math.floor(N / 2));
+  let L = Math.max(1, Math.floor(N / 2));                      // balanced default
+  const runFt = stepRunIn / 12, riseFt = stepRiseIn / 12;
+  const hypFt = Math.sqrt(runFt * runFt + riseFt * riseFt);    // slope length per step
+  const cosA  = runFt / hypFt;
+  if (railType) {
+    // Upper guard rail spans first-tread-centre → the landing-corner newel:
+    // (U − 0.5) steps of run, measured on the slope. Fit it in ONE section.
+    const maxSec = (railType.sectionFt && railType.sectionFt.length) ? Math.max(...railType.sectionFt) : 6;
+    const Umax   = Math.max(1, Math.floor(maxSec * cosA / runFt + 0.5));
+    if (N - L > Umax) L = N - Umax;                            // raise the landing
+  }
+  // Lower stringer must still fit stock (diagonal + the 6" cut buffer).
+  const maxStock = STOCK_LENGTHS[STOCK_LENGTHS.length - 1];
+  const Lmax = Math.max(1, Math.floor((maxStock - 0.5) / hypFt));
+  if (L > Lmax) L = Lmax;                                      // stringer wins over the rail
+  if (N - L < 1) L = N - 1;
   return { N, U: N - L, L };
 }
 // The landing platform: stair-width × LANDING_TRAVEL_FT mini-deck — 2×8 PT band +
@@ -6376,7 +6395,7 @@ function render() {
   const _digAuger  = document.getElementById('digMethod')?.value === 'auger';
   const stairSplit = stairWidthsIn.map((w, i) => {
     const riseIn = flightRiseIn(i);
-    return stairNeedsLanding(riseIn, stairRise, stairRun) ? { riseIn, ...splitFlightSteps(riseIn, stairRise) } : null;
+    return stairNeedsLanding(riseIn, stairRise, stairRun) ? { riseIn, ...splitFlightSteps(riseIn, stairRise, stairRun, railType) } : null;
   });
   const STs = [], MIDLs = [];
   stairWidthsIn.forEach((w, i) => {
@@ -10119,7 +10138,7 @@ function init3D() {
       // a too-tall flight becomes upper flight → platform (LANDING_TRAVEL_FT deep, on its
       // own posts) → lower flight. Steps below the landing shift OUT by the platform depth.
       const SPLITd    = stairNeedsLanding(heightIn + flightDropIn, riseIn3d, runIn3d)
-                        ? splitFlightSteps(heightIn + flightDropIn, riseIn3d) : null;
+                        ? splitFlightSteps(heightIn + flightDropIn, riseIn3d, runIn3d, railType3d) : null;
       const LAND_D    = SPLITd ? LANDING_TRAVEL_FT : 0;
       const LOWERn    = SPLITd ? SPLITd.L : 0;                       // risers below the landing (step i counts from the BOTTOM)
       const distShift = i => (SPLITd && i < LOWERn ? LAND_D : 0);
@@ -10469,12 +10488,31 @@ function init3D() {
         // plateau becomes one clean section between the flights' end newels.
         const GL = !SPLITd ? stairGuardLayout(effRiseFt, totalRun, stepRun, railType3d)
           : (() => {
-              const gu  = stairGuardLayout(SPLITd.U * stepRise, upperRunD, stepRun, railType3d);
-              const gl2 = stairGuardLayout(LOWERn * stepRise, LOWERn * stepRun, stepRun, railType3d);
-              const off = upperRunD + LAND_D;
-              const postDs = [...gu.postDs, ...gl2.postDs.map(d => d + off)];
-              return { ang: gu.ang, cosAng: gu.cosAng, dTop: postDs[0], dBot: postDs[postDs.length - 1],
-                       spanRunFt: postDs[postDs.length - 1] - postDs[0], nSec: postDs.length - 1, postDs };
+              // Newels stand ON THE LANDING at both platform corners, so the rails LAND on
+              // the platform: deck→corner (pure rake, ONE section — splitFlightSteps RAISED
+              // the landing until it fits the material), corner→corner (pure level), then
+              // corner→down. Mid newels appear only where a span still exceeds the product
+              // (e.g. the stringer-stock clamp beat the rail), snapped to tread centres.
+              const maxSec  = (railType3d.sectionFt && railType3d.sectionFt.length) ? Math.max(...railType3d.sectionFt) : 6;
+              const pitchCos = stepRun / Math.hypot(stepRun, stepRise);
+              const knee1 = upperRunD, knee2 = upperRunD + LAND_D;
+              const dTop  = 0.5 * stepRun;                                  // first tread centre
+              const dBot  = knee2 + (LOWERn - 0.5) * stepRun;               // last tread centre
+              const postDs = [dTop];
+              const upSecs = Math.max(1, Math.ceil(((knee1 - dTop) / pitchCos) / maxSec - 1e-9));
+              for (let i = 1; i < upSecs; i++)
+                postDs.push((Math.round((dTop + (knee1 - dTop) * i / upSecs) / stepRun - 0.5) + 0.5) * stepRun);
+              postDs.push(knee1, knee2);                                    // posts ON the landing corners
+              const loSecs = Math.max(1, Math.ceil(((dBot - knee2) / pitchCos) / maxSec - 1e-9));
+              for (let i = 1; i < loSecs; i++) {
+                const raw = knee2 + (dBot - knee2) * i / loSecs;
+                postDs.push(knee2 + (Math.round((raw - knee2) / stepRun - 0.5) + 0.5) * stepRun);
+              }
+              postDs.push(dBot);
+              const uniq = [...new Set(postDs.map(d => +d.toFixed(3)))].sort((a, b) => a - b);
+              const ang  = Math.atan2(stepRise, stepRun);                   // == the flight pitch
+              return { ang, cosAng: Math.cos(ang), dTop: uniq[0], dBot: uniq[uniq.length - 1],
+                       spanRunFt: uniq[uniq.length - 1] - uniq[0], nSec: uniq.length - 1, postDs: uniq };
             })();
         const ang       = GL.ang;                                   // === stringer angle
         const cosAng    = GL.cosAng;
