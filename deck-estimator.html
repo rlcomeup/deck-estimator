@@ -991,6 +991,14 @@
           <input type="checkbox" id="stairRisers" checked style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent)">
           <label for="stairRisers" style="margin:0;cursor:pointer;color:var(--text);font-size:.82rem">Include risers</label>
         </div>
+        <div class="field" style="margin-top:.4rem">
+          <label title="When a tall flight splits at a mid landing, the lower flight can turn 90° at the platform. A turned landing is stair-width × stair-width (the flight needs a full-width face to exit).">Landing turn <span style="font-size:10px;color:var(--muted)">(split flights only)</span></label>
+          <select id="stairLandingTurn">
+            <option value="straight" selected>Straight through</option>
+            <option value="left">Turn left (descending)</option>
+            <option value="right">Turn right (descending)</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -5391,13 +5399,19 @@ function splitFlightSteps(riseIn, stepRiseIn, stepRunIn = 11, railType = null) {
   if (N - L < 1) L = N - 1;
   return { N, U: N - L, L };
 }
+// Landing platform depth in the direction of travel. A STRAIGHT-through landing is
+// LANDING_TRAVEL_FT deep; a TURNED landing must be stair-width × stair-width — the
+// lower flight exits through a side face, which has to be a full stair width wide.
+function landingDepthFt(widthIn, turn) {
+  return (turn && turn !== 'straight') ? Math.max(LANDING_TRAVEL_FT, widthIn / 12) : LANDING_TRAVEL_FT;
+}
 // The landing platform: stair-width × LANDING_TRAVEL_FT mini-deck — 2×8 PT band +
 // joists @ 16" o.c., 5/4 decking (same species as the deck), 4 × 6×6 posts on
 // 10" tube footings (concrete POOLED into the deck's single optimized bag buy),
 // post bases, and a guard on the two open sides when the platform is ≥ 30" up.
 // platformTopFt = walking surface above the flight's foot grade.
-function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPriceLf, digAuger) {
-  const wFt = Math.max(3, widthIn / 12), dFt = LANDING_TRAVEL_FT;
+function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPriceLf, digAuger, turn = 'straight') {
+  const wFt = Math.max(3, widthIn / 12), dFt = landingDepthFt(widthIn, turn);
   const p28 = FRAMING_PRICE_LF['2x8'] ?? FRAMING_PER_LF;
   // Frame like the deck itself: TWO 2-ply 2×8 BEAMS across the stair width (one at
   // each end of travel, bearing on the post pairs) + 2×8 JOISTS spanning the travel
@@ -5417,9 +5431,10 @@ function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPr
   // Decking: wFt × dFt of the SAME 5/4 boards, by the linear foot.
   const deckLf   = Math.ceil(wFt * dFt / (5.5 / 12));
   const deckCost = +(deckLf * deckPriceLf).toFixed(2);
-  // Guard on the two OPEN sides (travel direction is open at both ends for the stairs).
+  // Guard on the open sides: straight-through → both SIDE faces (stairs enter/exit the
+  // rims); turned → the far rim + the non-exit side (the stairs exit one side face).
   const guarded   = platformTopFt * 12 >= 30;
-  const guardLf   = guarded ? Math.ceil(2 * dFt) : 0;
+  const guardLf   = guarded ? Math.ceil(turn !== 'straight' ? wFt + dFt : 2 * dFt) : 0;
   const guardCost = guarded ? +(guardLf * (railPriceLf || 0)).toFixed(2) : 0;
   const newelBuy  = guarded ? optimizePosts(4, STAIR_NEWEL_FT, RAILING_POST_LF_PRICE, 0, STOCK_LENGTHS)
                             : { boards: 0, lines: [], cost: 0 };
@@ -6393,6 +6408,7 @@ function render() {
   // 4 support posts + footings) between them. stairSplit[i] is null for a normal
   // flight, else {N,U,L} — the same helper the 3D uses, so render == BOM flights.
   const _digAuger  = document.getElementById('digMethod')?.value === 'auger';
+  const stairTurn  = document.getElementById('stairLandingTurn')?.value || 'straight';
   const stairSplit = stairWidthsIn.map((w, i) => {
     const riseIn = flightRiseIn(i);
     return stairNeedsLanding(riseIn, stairRise, stairRun) ? { riseIn, ...splitFlightSteps(riseIn, stairRise, stairRun, railType) } : null;
@@ -6405,7 +6421,7 @@ function render() {
     if (!sp) { STs.push(mk(flightRiseIn(i))); return; }
     STs.push(mk(sp.U * stairRise));                       // upper flight: deck → landing
     STs.push(mk(sp.L * stairRise));                       // lower flight: landing → grade
-    MIDLs.push(calcMidLanding(w, (sp.L * stairRise) / 12, species.price, fDepth, railType.railLf, _digAuger));
+    MIDLs.push(calcMidLanding(w, (sp.L * stairRise) / 12, species.price, fDepth, railType.railLf, _digAuger, stairTurn));
   });
   // Landing totals (all clusters). Kept OUT of ST so the per-flight stair sums stay pure.
   const MIDL = MIDLs.length ? {
@@ -6420,6 +6436,8 @@ function render() {
     guardLf:     MIDLs.reduce((s, m) => s + m.guardLf, 0),
     guardCost:  +MIDLs.reduce((s, m) => s + m.guardCost, 0).toFixed(2),
     posts:       4 * MIDLs.length,
+    dFt:         Math.max(...MIDLs.map(m => m.dFt)),
+    turn:        stairTurn,
     postLen:     Math.max(...MIDLs.map(m => m.postLen)),
     beamBuy:     mergeBuys(MIDLs.map(m => m.beamBuy)),
     joistBuy:    mergeBuys(MIDLs.map(m => m.joistBuy)),
@@ -7212,7 +7230,7 @@ function render() {
     ` : ''}
     ${MIDL ? `
     <div style="margin-top:4px;font-size:11px;color:#f97316">Mid-flight landing required — a single flight would exceed ${MAX_FLIGHT_RISE_IN}&Prime; rise (IRC R311.7.3) or the longest 2×12 stringer stock; each tall flight is split with a framed landing platform</div>
-    ${subline(`Landing platform${MIDL.count > 1 ? `s ×${MIDL.count}` : ''} (stair-width × ${LANDING_TRAVEL_FT}′ — 2 × 2-ply 2×8 beams on the posts + 2×8 joists @ ${LANDING_JOIST_OC_IN}&Prime; o.c. + ${ST.treadLabel} surface)`, `${MIDL.beamBuy.lines.concat(MIDL.joistBuy.lines).map(l => `${l.count}×${l.stock}′`).join(' + ')} + ${MIDL.deckLf} lf decking`)}
+    ${subline(`Landing platform${MIDL.count > 1 ? `s ×${MIDL.count}` : ''} (stair-width × ${MIDL.dFt}′${MIDL.turn !== 'straight' ? ` · stairs turn ${MIDL.turn}` : ''} — 2 × 2-ply 2×8 beams on the posts + 2×8 joists @ ${LANDING_JOIST_OC_IN}&Prime; o.c. + ${ST.treadLabel} surface)`, `${MIDL.beamBuy.lines.concat(MIDL.joistBuy.lines).map(l => `${l.count}×${l.stock}′`).join(' + ')} + ${MIDL.deckLf} lf decking`)}
     ${subline(`Landing support posts (${MIDL.posts} × 6×6 PT, ~${MIDL.postLen}′ — on ${LANDING_TUBE_DIA_IN}&Prime; tube footings)`, `${MIDL.postBuy.lines.map(l => `${l.count}×${l.stock}′`).join(' + ')} stock · ${MIDL.concreteCf} cf pooled above`)}
     ${MIDL.guarded ? subline(`Landing guard (2 open sides, ${railType.label})`, `${MIDL.guardLf} lf + ${MIDL.posts} newels`) : ''}
     ${line('Landing platform material', usd(MIDL.lumberCost + MIDL.deckCost + MIDL.tubeCost + MIDL.baseCost), 'cost')}
@@ -10139,19 +10157,41 @@ function init3D() {
       // own posts) → lower flight. Steps below the landing shift OUT by the platform depth.
       const SPLITd    = stairNeedsLanding(heightIn + flightDropIn, riseIn3d, runIn3d)
                         ? splitFlightSteps(heightIn + flightDropIn, riseIn3d, runIn3d, railType3d) : null;
-      const LAND_D    = SPLITd ? LANDING_TRAVEL_FT : 0;
+      const TURN      = SPLITd ? (document.getElementById('stairLandingTurn')?.value || 'straight') : 'straight';
+      const LAND_D    = SPLITd ? landingDepthFt(stairWFt * 12, TURN) : 0;   // turned landing = stair-width square
       const LOWERn    = SPLITd ? SPLITd.L : 0;                       // risers below the landing (step i counts from the BOTTOM)
       const distShift = i => (SPLITd && i < LOWERn ? LAND_D : 0);
       const platTopY  = SPLITd ? LOWERn * stepRise - flightDropFt : 0;   // platform walking surface
       const upperRunD = SPLITd ? SPLITd.U * stepRun : 0;                 // run length of the upper flight
+      // TURNED landing: the lower flight descends 90° off the platform's side face. Its
+      // frame2: axis = the original ACROSS axis (facing descent, LEFT = (dz,−dx)); its
+      // across-centre lies on the original run axis at the platform's middle.
+      const T2 = (SPLITd && TURN !== 'straight') ? (() => {
+        const fHoriz = sSide === 'left' || sSide === 'right';
+        const dx = fHoriz ? ((sSide === 'right') ? 1 : -1) : 0;
+        const dz = fHoriz ? 0 : ((sSide === 'back') ? 1 : -1);
+        const [tx, tz] = TURN === 'left' ? [dz, -dx] : [-dz, dx];
+        const side2  = tx === 1 ? 'right' : tx === -1 ? 'left' : tz === 1 ? 'back' : 'front';
+        const horiz2 = side2 === 'left' || side2 === 'right';
+        const sign2  = (side2 === 'front' || side2 === 'left') ? -1 : 1;
+        const acrossC = fHoriz ? sCZ : sCX;                          // platform centre on the across axis
+        return { side2, horiz2, sign2,
+                 edge2:   acrossC + sign2 * (stairWFt / 2),          // the platform side face the flight exits
+                 centre2: flightEdge + flightSign * (upperRunD + LAND_D / 2),   // lower flight's across-centre
+                 exitSo:  sign2 };                                   // which so-side of frame1 the exit opens
+      })() : null;
       for (let i = 0; i < steps; i++) {
         const yBase = i * stepRise - flightDropFt;   // flight shifted down onto the lower ground
         const dist  = (steps - 1 - i) * stepRun + distShift(i);   // lower flight sits PAST the landing
         const topY  = yBase + stepRise;                       // this tread's walking surface
-        const horiz = sSide === 'left' || sSide === 'right';  // flight runs along world X
-        const base  = flightEdge;
-        const sign  = flightSign;
-        const nearEdge = base + sign * dist;                  // deck-side edge of this tread
+        // TURNED landing: steps BELOW it draw in frame2 (the flight's rotated axis).
+        const useT2 = T2 && i < LOWERn;
+        const horiz = useT2 ? T2.horiz2 : (sSide === 'left' || sSide === 'right');
+        const sign  = useT2 ? T2.sign2  : flightSign;
+        const base  = useT2 ? T2.edge2  : flightEdge;
+        const eAcross = useT2 ? T2.centre2 : ((sSide === 'left' || sSide === 'right') ? sCZ : sCX);
+        const eDist = useT2 ? (steps - 1 - i) * stepRun - upperRunD : dist;
+        const nearEdge = base + sign * eDist;                 // top-side edge of this tread
 
         // Tread = the SAME 5/4×6 species deck boards it is billed as — `treadBoards`
         // boards laid across the run in deckMat, 1" thick, butted with a 1/8" gap —
@@ -10167,7 +10207,7 @@ function init3D() {
           const tb = new THREE.Mesh(
             horiz ? new THREE.BoxGeometry(boardDepth, treadH, stairWFt)
                   : new THREE.BoxGeometry(stairWFt, treadH, boardDepth), deckMat);
-          tb.position.set(horiz ? rc : sCX, topY - treadH / 2, horiz ? sCZ : rc);
+          tb.position.set(horiz ? rc : eAcross, topY - treadH / 2, horiz ? eAcross : rc);
           scene.add(tb);
         }
 
@@ -10182,7 +10222,7 @@ function init3D() {
           const riser = new THREE.Mesh(
             horiz ? new THREE.BoxGeometry(riserThk, riserH, stairWFt)
                   : new THREE.BoxGeometry(stairWFt, riserH, riserThk), riserMat);
-          riser.position.set(horiz ? riserRC : sCX, yBase + riserH / 2, horiz ? sCZ : riserRC);
+          riser.position.set(horiz ? riserRC : eAcross, yBase + riserH / 2, horiz ? eAcross : riserRC);
           scene.add(riser);
         }
       }
@@ -10203,9 +10243,10 @@ function init3D() {
         const treadOC   = sp.treadOC ?? (isComp ? 12 : 16);
         const nStr      = Math.ceil((stairWFt * 12) / treadOC) + 1;
         const strSegs = SPLITd
-          ? [{ n: SPLITd.U, top: heightFt, edge: flightEdge, ground: false },
-             { n: LOWERn,   top: platTopY, edge: flightEdge + flightSign * (upperRunD + LAND_D), ground: true }]
-          : [{ n: steps,    top: heightFt, edge: flightEdge, ground: true }];
+          ? [{ n: SPLITd.U, top: heightFt, edge: flightEdge, ground: false, side: sSide, cx: sCX, cz: sCZ },
+             T2 ? { n: LOWERn, top: platTopY, edge: T2.edge2, ground: true, side: T2.side2, cx: T2.centre2, cz: T2.centre2 }
+                : { n: LOWERn, top: platTopY, edge: flightEdge + flightSign * (upperRunD + LAND_D), ground: true, side: sSide, cx: sCX, cz: sCZ }]
+          : [{ n: steps,    top: heightFt, edge: flightEdge, ground: true, side: sSide, cx: sCX, cz: sCZ }];
         strSegs.forEach(SEGQ => {
         const totalRun3 = SEGQ.n * stepRun;
         const segRise   = SEGQ.n * stepRise;
@@ -10289,22 +10330,22 @@ function init3D() {
           const strGeom = new THREE.ExtrudeGeometry(shape, { depth: sThk, bevelEnabled: false });
           const sm  = new THREE.Mesh(strGeom, strMat);
 
-          if (sSide === 'back') {
+          if (SEGQ.side === 'back') {
             // local u → world +Z,  extrude (local +Z) → world −X
             sm.rotation.y = -Math.PI / 2;
-            sm.position.set(sCX + off + sThk / 2, 0, SEGQ.edge);
-          } else if (sSide === 'front') {
+            sm.position.set(SEGQ.cx + off + sThk / 2, 0, SEGQ.edge);
+          } else if (SEGQ.side === 'front') {
             // local u → world −Z,  extrude → world +X
             sm.rotation.y = Math.PI / 2;
-            sm.position.set(sCX + off - sThk / 2, 0, SEGQ.edge);
-          } else if (sSide === 'right') {
+            sm.position.set(SEGQ.cx + off - sThk / 2, 0, SEGQ.edge);
+          } else if (SEGQ.side === 'right') {
             // local u → world +X,  extrude → world +Z
             sm.rotation.y = 0;
-            sm.position.set(SEGQ.edge, 0, sCZ + off - sThk / 2);
+            sm.position.set(SEGQ.edge, 0, SEGQ.cz + off - sThk / 2);
           } else {
             // local u → world −X,  extrude → world −Z
             sm.rotation.y = Math.PI;
-            sm.position.set(SEGQ.edge, 0, sCZ + off + sThk / 2);
+            sm.position.set(SEGQ.edge, 0, SEGQ.cz + off + sThk / 2);
           }
           // Drop the stringer one tread thickness so its top starts a tread below
           // the deck surface — the tread seats then align with the tread bottoms,
@@ -10316,10 +10357,10 @@ function init3D() {
           {
             const bh = 0.5, bt = 0.08, bw = sThk + 0.05, by = segTop - treadH - bh / 2;
             let bg, bx, bz;
-            if (sSide === 'back')       { bg = new THREE.BoxGeometry(bw, bh, bt); bx = sCX + off; bz = SEGQ.edge + bt / 2; }
-            else if (sSide === 'front') { bg = new THREE.BoxGeometry(bw, bh, bt); bx = sCX + off; bz = SEGQ.edge - bt / 2; }
-            else if (sSide === 'right') { bg = new THREE.BoxGeometry(bt, bh, bw); bx = SEGQ.edge + bt / 2; bz = sCZ + off; }
-            else                        { bg = new THREE.BoxGeometry(bt, bh, bw); bx = SEGQ.edge - bt / 2; bz = sCZ + off; }
+            if (SEGQ.side === 'back')       { bg = new THREE.BoxGeometry(bw, bh, bt); bx = SEGQ.cx + off; bz = SEGQ.edge + bt / 2; }
+            else if (SEGQ.side === 'front') { bg = new THREE.BoxGeometry(bw, bh, bt); bx = SEGQ.cx + off; bz = SEGQ.edge - bt / 2; }
+            else if (SEGQ.side === 'right') { bg = new THREE.BoxGeometry(bt, bh, bw); bx = SEGQ.edge + bt / 2; bz = SEGQ.cz + off; }
+            else                            { bg = new THREE.BoxGeometry(bt, bh, bw); bx = SEGQ.edge - bt / 2; bz = SEGQ.cz + off; }
             const brk = new THREE.Mesh(bg, hwMat);
             brk.position.set(bx, by, bz);
             scene.add(brk);
@@ -10338,12 +10379,20 @@ function init3D() {
         const d0 = upperRunD, d1 = upperRunD + LAND_D;                 // platform extent along the run
         const midD = (d0 + d1) / 2, midAlong = flightEdge + dirSign * midD;
         const surfY = platTopY;                                        // walking surface
-        // surface (5/4 boards as one slab in the deck material)
-        const slab = new THREE.Mesh(horiz
-          ? new THREE.BoxGeometry(LAND_D, treadH, stairWFt)
-          : new THREE.BoxGeometry(stairWFt, treadH, LAND_D), deckMat);
-        slab.position.set(horiz ? midAlong : sCX, surfY - treadH / 2, horiz ? sCZ : midAlong);
-        scene.add(slab);
+        // surface — INDIVIDUAL 5/4×6 boards with the deck's 1/8" gaps (same board
+        // parameters as the main deck surface), running across the stair width,
+        // perpendicular to the landing joists.
+        const bW = 5.5 / 12, bGap = (1 / 8) / 12, bPitch = bW + bGap;
+        const nB = Math.max(1, Math.floor((LAND_D + bGap) / bPitch));
+        const bStart = d0 + (LAND_D - (nB * bPitch - bGap)) / 2;   // centre the courses in the travel depth
+        for (let b = 0; b < nB; b++) {
+          const along = flightEdge + dirSign * (bStart + b * bPitch + bW / 2);
+          const bd = new THREE.Mesh(horiz
+            ? new THREE.BoxGeometry(bW, treadH, stairWFt)
+            : new THREE.BoxGeometry(stairWFt, treadH, bW), deckMat);
+          bd.position.set(horiz ? along : sCX, surfY - treadH / 2, horiz ? sCZ : along);
+          scene.add(bd);
+        }
         // FRAME like the deck itself: 2×8 JOISTS spanning the travel direction @ 16" o.c.
         // (tops tight under the decking, both edge joists included — matches the BOM's
         // nJoist), bearing on TWO 2-ply 2×8 BEAMS that run across the stair width on the
@@ -10391,10 +10440,13 @@ function init3D() {
       // concrete footing the FULL stair width, centered under the stringer ends so
       // each stringer lands on it (Fairfax Fig 40).
       {
-        const totalRun = steps * stepRun + LAND_D;   // ground foot sits PAST the landing on a split flight
-        const horiz    = sSide === 'left' || sSide === 'right';
-        const dirSign  = (sSide === 'front' || sSide === 'left') ? -1 : 1;
-        const edge     = flightEdge;
+        // TURNED landing: the ground foot belongs to the LOWER flight in frame2.
+        const fSide    = T2 ? T2.side2 : sSide;
+        const totalRun = T2 ? LOWERn * stepRun : steps * stepRun + LAND_D;   // ground foot sits PAST the landing on a straight split
+        const horiz    = fSide === 'left' || fSide === 'right';
+        const dirSign  = (fSide === 'front' || fSide === 'left') ? -1 : 1;
+        const edge     = T2 ? T2.edge2 : flightEdge;
+        const acrossC  = T2 ? T2.centre2 : (horiz ? sCZ : sCX);
         const padW    = stairWFt;                                         // footing width = stair width
         const bearRun = STRINGER_FOOT_RUN_IN / 12, footDeep = STRINGER_FOOT_DEEP_IN / 12;
         // Center the footing a half-run back from the bottom riser so its FRONT face is
@@ -10408,8 +10460,8 @@ function init3D() {
         const crossTilt = Math.atan2(dEndR - dEndL, stairWFt);
         const foot = new THREE.Mesh(new THREE.BoxGeometry(
           horiz ? bearRun : padW, footDeep, horiz ? padW : bearRun), concreteMat);
-        if (horiz) { foot.position.set(footAlong, -footDeep / 2 + 0.006 - avgDrop, sCZ); foot.rotation.x =  crossTilt; }
-        else       { foot.position.set(sCX, -footDeep / 2 + 0.006 - avgDrop, footAlong); foot.rotation.z = -crossTilt; }
+        if (horiz) { foot.position.set(footAlong, -footDeep / 2 + 0.006 - avgDrop, acrossC); foot.rotation.x =  crossTilt; }
+        else       { foot.position.set(acrossC, -footDeep / 2 + 0.006 - avgDrop, footAlong); foot.rotation.z = -crossTilt; }
         scene.add(foot);
 
         // KICKER plate (PT 2×4 flat on the footing, FULL stair width) at the FRONT of the bearing,
@@ -10420,8 +10472,8 @@ function init3D() {
         const kickTop = 0.006 - avgDrop + KICKER_H, kickY = 0.006 - avgDrop + KICKER_H / 2;
         const kick = new THREE.Mesh(new THREE.BoxGeometry(
           horiz ? KICKER_W : padW, KICKER_H, horiz ? padW : KICKER_W), kickerMat);
-        if (horiz) { kick.position.set(kickAlong, kickY, sCZ); kick.rotation.x =  crossTilt; }
-        else       { kick.position.set(sCX, kickY, kickAlong); kick.rotation.z = -crossTilt; }
+        if (horiz) { kick.position.set(kickAlong, kickY, acrossC); kick.rotation.x =  crossTilt; }
+        else       { kick.position.set(acrossC, kickY, kickAlong); kick.rotation.z = -crossTilt; }
         scene.add(kick);
         const nKS = Math.max(2, Math.ceil((stairWFt * 12) / 16));   // concrete screws @ 16" o.c. (== kickerScrewCount)
         const ksLen = 2.75 / 12, ksR = 0.13 / 12;
@@ -10430,8 +10482,8 @@ function init3D() {
           const shaft = new THREE.Mesh(new THREE.CylinderGeometry(ksR, ksR, ksLen, 8), hwMat);
           const head  = new THREE.Mesh(new THREE.CylinderGeometry(ksR * 1.9, ksR * 1.9, 0.02, 6), hwMat);
           const sy = kickTop - ksLen / 2;                           // shaft runs from the kicker top down into the footing
-          if (horiz) { shaft.position.set(kickAlong, sy, sCZ + a); head.position.set(kickAlong, kickTop + 0.01, sCZ + a); }
-          else       { shaft.position.set(sCX + a, sy, kickAlong);  head.position.set(sCX + a, kickTop + 0.01, kickAlong); }
+          if (horiz) { shaft.position.set(kickAlong, sy, acrossC + a); head.position.set(kickAlong, kickTop + 0.01, acrossC + a); }
+          else       { shaft.position.set(acrossC + a, sy, kickAlong);  head.position.set(acrossC + a, kickTop + 0.01, kickAlong); }
           scene.add(shaft); scene.add(head);
         }
       }
@@ -10503,12 +10555,14 @@ function init3D() {
               for (let i = 1; i < upSecs; i++)
                 postDs.push((Math.round((dTop + (knee1 - dTop) * i / upSecs) / stepRun - 0.5) + 0.5) * stepRun);
               postDs.push(knee1, knee2);                                    // posts ON the landing corners
-              const loSecs = Math.max(1, Math.ceil(((dBot - knee2) / pitchCos) / maxSec - 1e-9));
-              for (let i = 1; i < loSecs; i++) {
-                const raw = knee2 + (dBot - knee2) * i / loSecs;
-                postDs.push(knee2 + (Math.round((raw - knee2) / stepRun - 0.5) + 0.5) * stepRun);
-              }
-              postDs.push(dBot);
+              if (!T2) {                                                    // straight: continue down the lower flight
+                const loSecs = Math.max(1, Math.ceil(((dBot - knee2) / pitchCos) / maxSec - 1e-9));
+                for (let i = 1; i < loSecs; i++) {
+                  const raw = knee2 + (dBot - knee2) * i / loSecs;
+                  postDs.push(knee2 + (Math.round((raw - knee2) / stepRun - 0.5) + 0.5) * stepRun);
+                }
+                postDs.push(dBot);
+              }                                                             // turned: the lower flight gets its own frame2 guard below
               const uniq = [...new Set(postDs.map(d => +d.toFixed(3)))].sort((a, b) => a - b);
               const ang  = Math.atan2(stepRise, stepRun);                   // == the flight pitch
               return { ang, cosAng: Math.cos(ang), dTop: uniq[0], dBot: uniq[uniq.length - 1],
@@ -10567,7 +10621,13 @@ function init3D() {
               const segAng   = Math.atan2(dy, Math.max(0.01, a1 - a0));
               const slopeLen = Math.hypot(a1 - a0, dy);
               const dm = (a0 + a1) / 2;
-              const along = edge + dirSign * dm, y = (rakeY(a0) + rakeY(a1)) / 2 + hAbove;
+              // LEVEL pieces on the landing plateau use the MAIN DECK's guard reference
+              // (36" above the walking surface), not the raked nosing-lifted height.
+              // Tolerances are LOOSE (0.01 ft) — postDs round through toFixed(3), which can
+              // nudge a knee a third of a millimetre past the piecewise-rake branch boundary
+              // and make a "level" plateau piece carry dy ≈ 2e-4 (bit us once).
+              const onPlat = SPLITd && Math.abs(dy) < 0.01 && a0 >= upperRunD - 0.05 && a1 <= upperRunD + LAND_D + 0.05;
+              const along = edge + dirSign * dm, y = (rakeY(a0) + rakeY(a1)) / 2 + hAbove - (onPlat ? nosingH : 0);
               const m = new THREE.Mesh(makeGeo(slopeLen), mat);
               if (horiz) { m.position.set(along, y, acrossPos); m.rotation.z = -dirSign * segAng; }
               else       { m.position.set(acrossPos, y, along);  m.rotation.x =  dirSign * segAng; }
@@ -10575,8 +10635,13 @@ function init3D() {
             }
           };
           const railBox = L => horiz ? new THREE.BoxGeometry(L, rT, rT) : new THREE.BoxGeometry(rT, rT, L);
+          // On a TURNED landing the exit-side plateau section stays OPEN — the lower
+          // flight leaves through that face.
+          const openSec = (d0, d1) => T2 && so === T2.exitSo
+            && d0 >= upperRunD - 0.02 && d1 <= upperRunD + LAND_D + 0.02 && d1 - d0 > 1;
           // top rail (handrail) + base rail, one per section so a mid newel butts them.
           for (let i = 0; i < nSec; i++) {
+            if (openSec(postDs[i], postDs[i + 1])) continue;
             rake(postDs[i], postDs[i + 1], topH, railBox, railMat);
             rake(postDs[i], postDs[i + 1], botH, railBox, railMat);
           }
@@ -10585,13 +10650,15 @@ function init3D() {
             const rC = 0.012;
             const cabGeo = L => { const g = new THREE.CylinderGeometry(rC, rC, L, 8); if (horiz) g.rotateZ(Math.PI / 2); else g.rotateX(Math.PI / 2); return g; };
             for (let h = botH + 3 / 12; h < topH - 0.02; h += 3 / 12)
-              for (let i = 0; i < nSec; i++) rake(postDs[i], postDs[i + 1], h, cabGeo, balMat);
+              for (let i = 0; i < nSec; i++) { if (openSec(postDs[i], postDs[i + 1])) continue; rake(postDs[i], postDs[i + 1], h, cabGeo, balMat); }
           } else {
             const balW = 0.06, nBal = Math.max(1, Math.round(spanRunFt / (4 / 12)));
             for (let i = 0; i <= nBal; i++) {
               const d = dTop + spanRunFt * (i / nBal), along = edge + dirSign * d;
+              const onPlat = SPLITd && d > upperRunD + 0.01 && d < upperRunD + LAND_D - 0.01;
+              if (T2 && so === T2.exitSo && onPlat) continue;               // exit side is open on a turned landing
               const bm = new THREE.Mesh(new THREE.BoxGeometry(balW, balH, balW), balMat);
-              bm.position.set(horiz ? along : acrossPos, rakeY(d) + balCenterH, horiz ? acrossPos : along);
+              bm.position.set(horiz ? along : acrossPos, rakeY(d) + balCenterH - (onPlat ? nosingH : 0), horiz ? acrossPos : along);
               scene.add(bm);
             }
           }
@@ -10634,6 +10701,76 @@ function init3D() {
             });
           }
         });
+
+        // TURNED landing: (a) the FAR RIM gets a level guard at MAIN-DECK height (the
+        // straight-through exit is now a wall), and (b) the lower flight carries its own
+        // guard in frame2 — newels on the platform corner + tread centres, raked rails.
+        if (T2) {
+          const aMax  = stairWFt / 2 - RAIL_CENTER_INSET_FT;
+          const kneeD = upperRunD + LAND_D;
+          const acrossC1 = horiz ? sCZ : sCX;
+          // (a) far rim — across the run axis, deck-referenced heights
+          const rimAlong = edge + dirSign * (kneeD - RAIL_CENTER_INSET_FT);
+          const rbA = L => horiz ? new THREE.BoxGeometry(rT, rT, L) : new THREE.BoxGeometry(L, rT, rT);
+          [topH, botH].forEach(h => {
+            const m = new THREE.Mesh(rbA(2 * aMax), railMat);
+            m.position.set(horiz ? rimAlong : acrossC1, platTopY + h - nosingH, horiz ? acrossC1 : rimAlong);
+            scene.add(m);
+          });
+          const nBr = Math.max(1, Math.round((2 * aMax) / (4 / 12)));
+          for (let i = 0; i <= nBr; i++) {
+            const a = -aMax + 2 * aMax * i / nBr;
+            const bm = new THREE.Mesh(new THREE.BoxGeometry(0.06, balH, 0.06), balMat);
+            bm.position.set(horiz ? rimAlong : acrossC1 + a, platTopY + balCenterH - nosingH, horiz ? acrossC1 + a : rimAlong);
+            scene.add(bm);
+          }
+          // (b) lower flight guard in frame2
+          const slope2 = stepRise / stepRun, rake2Y = u => platTopY - slope2 * u;
+          const maxSec2 = (railType3d.sectionFt && railType3d.sectionFt.length) ? Math.max(...railType3d.sectionFt) : 6;
+          const cos2 = stepRun / Math.hypot(stepRun, stepRise);
+          const uBot = (LOWERn - 0.5) * stepRun;
+          const post2 = [0];
+          const sec2 = Math.max(1, Math.ceil((uBot / cos2) / maxSec2 - 1e-9));
+          for (let i = 1; i < sec2; i++) post2.push((Math.round((uBot * i / sec2) / stepRun - 0.5) + 0.5) * stepRun);
+          post2.push(uBot);
+          const h2 = T2.horiz2, s2 = T2.sign2, e2 = T2.edge2, c2 = T2.centre2;
+          [-1, 1].forEach(so2 => {
+            const across2 = c2 + so2 * aMax;
+            const put = (u0, u1, hAbove, geoFn, mat) => {
+              const dy = rake2Y(u0) - rake2Y(u1);
+              const angp = Math.atan2(dy, Math.max(0.01, u1 - u0));
+              const len = Math.hypot(u1 - u0, dy);
+              const um = (u0 + u1) / 2, along = e2 + s2 * um, y = (rake2Y(u0) + rake2Y(u1)) / 2 + hAbove;
+              const m = new THREE.Mesh(geoFn(len), mat);
+              if (h2) { m.position.set(along, y, across2); m.rotation.z = -s2 * angp; }
+              else    { m.position.set(across2, y, along);  m.rotation.x =  s2 * angp; }
+              scene.add(m);
+            };
+            const rb2 = L => h2 ? new THREE.BoxGeometry(L, rT, rT) : new THREE.BoxGeometry(rT, rT, L);
+            for (let i = 0; i + 1 < post2.length; i++) { put(post2[i], post2[i + 1], topH, rb2, railMat); put(post2[i], post2[i + 1], botH, rb2, railMat); }
+            if (railIsCable) {
+              const rC = 0.012;
+              const cg2 = L => { const g = new THREE.CylinderGeometry(rC, rC, L, 8); if (h2) g.rotateZ(Math.PI / 2); else g.rotateX(Math.PI / 2); return g; };
+              for (let h = botH + 3 / 12; h < topH - 0.02; h += 3 / 12)
+                for (let i = 0; i + 1 < post2.length; i++) put(post2[i], post2[i + 1], h, cg2, balMat);
+            } else {
+              const nB2 = Math.max(1, Math.round(uBot / (4 / 12)));
+              for (let i = 0; i <= nB2; i++) {
+                const u = uBot * i / nB2, along = e2 + s2 * u;
+                const bm = new THREE.Mesh(new THREE.BoxGeometry(0.06, balH, 0.06), balMat);
+                bm.position.set(h2 ? along : across2, rake2Y(u) + balCenterH, h2 ? across2 : along);
+                scene.add(bm);
+              }
+            }
+            const pH2 = topH + rT / 2;
+            post2.forEach(u => {
+              const along = e2 + s2 * u;
+              const gp = new THREE.Mesh(new THREE.BoxGeometry(postW, pH2, postW), railMat);
+              gp.position.set(h2 ? along : across2, rake2Y(u) + pH2 / 2, h2 ? across2 : along);
+              scene.add(gp);
+            });
+          });
+        }
       }
     }
   }
