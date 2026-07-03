@@ -10463,7 +10463,19 @@ function init3D() {
         const totalRun  = steps * stepRun + LAND_D;                 // guard also crosses the landing plateau
         const rakeSlope = effRiseFt / (steps * stepRun);            // stringer pitch (rise / run — landing excluded)
         // SINGLE SOURCE shared with the cost/BOM (calcStairGuard) → identical newels/sections.
-        const GL        = stairGuardLayout(effRiseFt, totalRun, stepRun, railType3d);
+        // SPLIT flight: compose the layout from TWO per-flight stairGuardLayout calls so the
+        // newels snap to REAL tread centres of each flight (the extended-run layout snapped
+        // them to phantom "treads" ON the landing plateau — posts floated at odd spots). The
+        // plateau becomes one clean section between the flights' end newels.
+        const GL = !SPLITd ? stairGuardLayout(effRiseFt, totalRun, stepRun, railType3d)
+          : (() => {
+              const gu  = stairGuardLayout(SPLITd.U * stepRise, upperRunD, stepRun, railType3d);
+              const gl2 = stairGuardLayout(LOWERn * stepRise, LOWERn * stepRun, stepRun, railType3d);
+              const off = upperRunD + LAND_D;
+              const postDs = [...gu.postDs, ...gl2.postDs.map(d => d + off)];
+              return { ang: gu.ang, cosAng: gu.cosAng, dTop: postDs[0], dBot: postDs[postDs.length - 1],
+                       spanRunFt: postDs[postDs.length - 1] - postDs[0], nSec: postDs.length - 1, postDs };
+            })();
         const ang       = GL.ang;                                   // === stringer angle
         const cosAng    = GL.cosAng;
         const horiz     = sSide === 'left' || sSide === 'right';
@@ -10505,18 +10517,24 @@ function init3D() {
           const a = so * (stairWFt / 2 - RAIL_CENTER_INSET_FT);    // same inset off the edge as the deck posts
           const acrossPos = horiz ? (sCZ + a) : (sCX + a);
           // place a raked element (box or oriented cylinder) centred between runs [d0,d1] at height hAbove the rake.
-          // The angle comes from the rake line ACROSS THIS SPAN (not the global stair pitch), so a
-          // section crossing a landing plateau renders LEVEL and part-plateau sections tilt correctly.
+          // A span is SPLIT at the landing knees (rake→level→rake), so every drawn piece is either
+          // purely raked or purely level — no chord cutting across a corner. Each piece's angle
+          // comes from the rake line across ITS OWN extent.
           const rake = (d0, d1, hAbove, makeGeo, mat) => {
-            const dm = (d0 + d1) / 2;
-            const dy = rakeY(d0) - rakeY(d1);                        // drop across this span (0 on the plateau)
-            const segAng   = Math.atan2(dy, Math.max(0.01, d1 - d0));
-            const slopeLen = Math.hypot(d1 - d0, dy);
-            const along = edge + dirSign * dm, y = (rakeY(d0) + rakeY(d1)) / 2 + hAbove;
-            const m = new THREE.Mesh(makeGeo(slopeLen), mat);
-            if (horiz) { m.position.set(along, y, acrossPos); m.rotation.z = -dirSign * segAng; }
-            else       { m.position.set(acrossPos, y, along);  m.rotation.x =  dirSign * segAng; }
-            scene.add(m);
+            const cuts = SPLITd ? [upperRunD, upperRunD + LAND_D].filter(c => c > d0 + 0.02 && c < d1 - 0.02) : [];
+            const bnds = [d0, ...cuts, d1];
+            for (let b = 0; b + 1 < bnds.length; b++) {
+              const a0 = bnds[b], a1 = bnds[b + 1];
+              const dy = rakeY(a0) - rakeY(a1);                      // drop across this piece (0 on the plateau)
+              const segAng   = Math.atan2(dy, Math.max(0.01, a1 - a0));
+              const slopeLen = Math.hypot(a1 - a0, dy);
+              const dm = (a0 + a1) / 2;
+              const along = edge + dirSign * dm, y = (rakeY(a0) + rakeY(a1)) / 2 + hAbove;
+              const m = new THREE.Mesh(makeGeo(slopeLen), mat);
+              if (horiz) { m.position.set(along, y, acrossPos); m.rotation.z = -dirSign * segAng; }
+              else       { m.position.set(acrossPos, y, along);  m.rotation.x =  dirSign * segAng; }
+              scene.add(m);
+            }
           };
           const railBox = L => horiz ? new THREE.BoxGeometry(L, rT, rT) : new THREE.BoxGeometry(rT, rT, L);
           // top rail (handrail) + base rail, one per section so a mid newel butts them.
