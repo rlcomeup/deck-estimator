@@ -373,6 +373,25 @@
   #cutSheetView .cs-note { color:var(--muted,#888); font-size:.78rem; }
   #cutSheetView .cs-drawing { width:100%; overflow:auto; margin:.2rem 0 .5rem; border:1px solid var(--border); border-radius:6px; background:#fff; }
   #cutSheetView .cs-drawing svg { display:block; width:100%; height:auto; }
+  /* ── Breaker Placement Lab overlay (evaluate example decks → learn the weights) ── */
+  #breakerLabView { display:none; }
+  #breakerLabView.open { display:flex; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.55); align-items:flex-start; justify-content:center; overflow:auto; padding:2rem 1rem; }
+  #breakerLabView .bl-box { background:var(--surface); color:var(--text); width:min(880px,96vw); border-radius:10px; max-height:92vh; overflow:auto; box-shadow:0 12px 48px rgba(0,0,0,.45); }
+  #breakerLabView .bl-bar { position:sticky; top:0; z-index:1; display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.6rem 1rem; background:var(--button-primary-bg,#2a3a5e); color:#fff; font-weight:600; }
+  #breakerLabView .bl-bar button { background:transparent; border:0; color:#fff; font-size:1.15rem; cursor:pointer; line-height:1; }
+  #breakerLabView .bl-body { padding:1rem 1.2rem 1.4rem; font-size:.86rem; }
+  #breakerLabView .bl-exlist { display:flex; flex-wrap:wrap; gap:.5rem; margin:.7rem 0; }
+  #breakerLabView .bl-ex { padding:.45rem .7rem; border:1px solid var(--border); background:var(--surface-2); color:var(--text); border-radius:8px; cursor:pointer; font-size:.8rem; }
+  #breakerLabView .bl-ex:hover { border-color:var(--accent); }
+  #breakerLabView .bl-cards { display:flex; flex-wrap:wrap; gap:.8rem; }
+  #breakerLabView .bl-card { border:2px solid var(--border); border-radius:10px; padding:.6rem; cursor:pointer; background:var(--surface-2); }
+  #breakerLabView .bl-card:hover { border-color:var(--accent); }
+  #breakerLabView .bl-chosen { border-color:var(--accent2); box-shadow:0 0 0 2px var(--accent2); }
+  #breakerLabView .bl-cap { margin-top:.4rem; font-size:.74rem; }
+  #breakerLabView .bl-foot { display:flex; justify-content:space-between; align-items:center; margin-top:1.1rem; gap:1rem; flex-wrap:wrap; }
+  #breakerLabView .bl-btn { padding:.5rem .8rem; border-radius:8px; border:0; background:var(--button-primary-bg); color:#fff; cursor:pointer; font-size:.82rem; }
+  #breakerLabView .bl-btn[disabled] { opacity:.5; cursor:not-allowed; }
+  #breakerLabView .bl-ghost { background:var(--surface-2); color:var(--text); border:1px solid var(--border); }
   .cell.stair-entry { background: var(--cell-stair) !important; outline: 2px solid var(--cell-stair-line); outline-offset: -2px; color: rgba(0,0,0,0.62); }
   .cell.no-rail { outline: 2px dashed #ef4444; outline-offset: -2px; }
   .cell.no-rail::after { content: '⌀'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ef4444; font-size: 11px; font-weight: 700; pointer-events: none; }
@@ -779,6 +798,20 @@
           <option value="right">45° right (counter-clockwise)</option>
         </select>
       </div>
+      <div class="field" style="margin-top:.6rem" id="breakerStyleField">
+        <label title="Breaker boards split deck-board runs longer than one stock board. COST favours the least offcut waste and the fewest breakers; LOOKS favours mirror symmetry, even segments and breaks aligned to the deck's corners.">Breaker Placement <span style="font-size:10px;color:var(--muted)">(cost ⟷ looks)</span></label>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <span style="font-size:10px;color:var(--muted);letter-spacing:.05em">COST</span>
+          <input type="range" id="breakerStyle" min="0" max="100" step="5" value="60" style="flex:1;accent-color:var(--accent)">
+          <span style="font-size:10px;color:var(--muted);letter-spacing:.05em">LOOKS</span>
+        </div>
+        <button type="button" style="margin-top:.4rem;padding:.3rem .55rem;font-size:10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer" onclick="openBreakerLab()">🧪 Refine with example decks…</button>
+      </div>
+      <div class="field" id="breakerLearnedNote" style="display:none;margin-top:.6rem;font-size:11px;color:var(--muted)">
+        Breaker placement: <b style="color:var(--text)">learned from your examples</b>
+        <button type="button" style="padding:.25rem .5rem;font-size:10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer;margin-left:.35rem" onclick="openBreakerLab()">review</button>
+        <button type="button" style="padding:.25rem .5rem;font-size:10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer" onclick="resetBreakerLab()">reset</button>
+      </div>
       <div class="field" style="margin-top:.6rem">
         <label>Board Fastener <span style="font-size:10px;color:var(--muted)">(2/joist, hidden clips 1/joist)</span></label>
         <select id="deckFastener">
@@ -990,6 +1023,14 @@
         <div class="field" style="flex-direction:row;align-items:center;gap:.5rem;margin-top:.2rem">
           <input type="checkbox" id="stairRisers" checked style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent)">
           <label for="stairRisers" style="margin:0;cursor:pointer;color:var(--text);font-size:.82rem">Include risers</label>
+        </div>
+        <div class="field" style="margin-top:.4rem">
+          <label title="When a tall flight splits at a mid landing, the lower flight can turn 90° at the platform. A turned landing is stair-width × stair-width (the flight needs a full-width face to exit).">Landing turn <span style="font-size:10px;color:var(--muted)">(split flights only)</span></label>
+          <select id="stairLandingTurn">
+            <option value="straight" selected>Straight through</option>
+            <option value="left">Turn left (descending)</option>
+            <option value="right">Turn right (descending)</option>
+          </select>
         </div>
       </div>
     </div>
@@ -2827,6 +2868,95 @@ function compileJoistBoards(joists, beamOffsets, overhangFt, freestanding, lapFt
   };
 }
 
+// ── Breaker-layout optimizer (ported from the user's design) ────────
+// Pure enumerate-and-score core: list EVERY feasible breaker layout for one
+// straight region (positions snap to JOIST lines; segments must fit stock and a
+// minimum length; tries the minimum breaker count plus up to two extra — an
+// "unnecessary" breaker sometimes wins on symmetry or waste), then score each on
+// a weighted blend of purchase WASTE, mirror SYMMETRY, segment UNIFORMITY and
+// FEATURE alignment. The #breakerStyle slider morphs the weights COST ↔ LOOKS.
+const BREAKER_MAX_EVALS = 250000;   // safety valve for huge decks
+function breakerSegmentsOf(breakers, length) {
+  const pts = [0, ...breakers, length];
+  const segs = [];
+  for (let i = 1; i < pts.length; i++) segs.push(pts[i] - pts[i - 1]);
+  return segs;
+}
+// Slider position t (0 = COST … 1 = LOOKS) → the optimizer's score weights.
+// Single source for the live #breakerStyle slider, the Breaker Lab's candidate
+// presets, AND the learned-weights fit — all three must morph identically.
+function breakerWeightsFromT(t) {
+  return {
+    waste:        1.5 * (1 - t) + 0.1,
+    sym:          1.2 * t + 0.05,
+    uniform:      0.7 * t,
+    feature:      1.0 * t + 0.1,
+    extraBreaker: 0.03 * (1 - t),
+  };
+}
+function generateBreakerLayouts(length, positions, minSegment, maxStock) {
+  const kMin = Math.max(0, Math.ceil(length / maxStock - 1e-6) - 1);
+  const kMax = kMin + 2;
+  const layouts = [];
+  let evals = 0;
+  for (let k = kMin; k <= kMax; k++) {
+    if (k === 0) { if (length <= maxStock + 1e-6) layouts.push([]); continue; }
+    const chosen = [];
+    const rec = (startIdx, prev) => {
+      if (evals > BREAKER_MAX_EVALS) return;
+      if (chosen.length === k) {
+        const last = length - prev;
+        if (last >= minSegment - 1e-6 && last <= maxStock + 1e-6) { evals++; layouts.push([...chosen]); }
+        return;
+      }
+      for (let i = startIdx; i < positions.length; i++) {
+        const seg = positions[i] - prev;
+        if (seg < minSegment - 1e-6) continue;
+        if (seg > maxStock + 1e-6) break;                    // positions ascend; no point continuing
+        const remBreakers = k - chosen.length - 1;
+        const remaining = length - positions[i];
+        if (remaining > (remBreakers + 1) * maxStock + 1e-6) continue;
+        if (remaining < (remBreakers + 1) * minSegment - 1e-6) break;
+        chosen.push(positions[i]);
+        rec(i + 1, positions[i]);
+        chosen.pop();
+      }
+    };
+    rec(0, 0);
+  }
+  return layouts;
+}
+// Lower is better; null = infeasible. Terms normalized ~0..1:
+//   waste   — offcut per foot when each segment cuts from the cheapest stock
+//   asym    — mirror-asymmetry of segments around the region centreline
+//   cv      — coefficient of variation of segment lengths (uniformity)
+//   feature — distance from each feature to its nearest breaker (capped at 4 ft)
+function scoreBreakerLayout(breakers, length, features, weights) {
+  const segs = breakerSegmentsOf(breakers, length);
+  let wasteLF = 0;
+  for (const s of segs) {
+    const st = cheapestStockFor(s);
+    if (st === null) return null;
+    wasteLF += st - s;
+  }
+  const waste = wasteLF / length;
+  let asym = 0;
+  const n = segs.length;
+  for (let i = 0; i < n; i++) asym += Math.abs(segs[i] - segs[n - 1 - i]);
+  asym /= 2 * length;
+  const mean = length / n;
+  const cv = Math.sqrt(segs.reduce((a, s) => a + (s - mean) ** 2, 0) / n) / mean;
+  let feature = 0;
+  if (features.length && breakers.length) {
+    const CAP = 4;                                           // beyond 4 ft, alignment credit is gone
+    let acc = 0;
+    for (const f of features) acc += Math.min(Math.min(...breakers.map(b => Math.abs(b - f))), CAP) / CAP;
+    feature = acc / features.length;
+  } else if (features.length && !breakers.length) feature = 1;
+  return weights.waste * waste + weights.sym * asym + weights.uniform * cv
+       + weights.feature * feature + weights.extraBreaker * breakers.length;
+}
+
 // ── Shared decking layout ───────────────────────────────────────────
 // THE single source of truth for deck-board placement: the picture-frame
 // border course along every exposed edge, perpendicular breaker boards over
@@ -3054,89 +3184,48 @@ function computeDeckingLayout() {
     if (reg) { reg.xL = Math.min(reg.xL, run.xL); reg.xR = Math.max(reg.xR, run.xR); }
     else regions.push({ xL: run.xL, xR: run.xR, z: run.z });
   }
-  // ── Joist grid + bay centres (for breaker placement) ──────────────
-  // Joists run parallel to the breakers, on the regular grid x0 + i·spacing (plus a
-  // joist at the far edge) — the SAME positions computeBlocking reads. A breaker is
-  // cheapest to support (and structurally clean) when it lands in a joist BAY: that
-  // needs blocking in ONE bay. Over a joist, its 5½" edges + the field butt-ends hang
-  // into BOTH adjacent bays, so BOTH must be blocked. We therefore steer each breaker
-  // plane to the nearest bay CENTRE — unless that would over-length a field section
-  // (a costlier longer board, or an extra breaker) or strand an unsightly sliver of
-  // field boards at the perimeter, in which case it stays put (over a joist is then
-  // allowed, blocked both sides).
+  // ── Joist grid (breaker candidate positions) ──────────────────────
+  // The optimizer SNAPS breakers TO JOIST LINES (its design): computeBlocking
+  // already blocks BOTH adjacent bays when a breaker sits over a joist, so the
+  // extra blocking bills automatically — no special-casing here.
   const x1d = (maxC + 1) * cellSize;
   const joistXs = [];
   for (let i = 0; ; i++) { const jx = x0 + i * spacingFt; if (jx > x1d + 0.01) break; joistXs.push(+jx.toFixed(3)); }
   if (!joistXs.length || joistXs[joistXs.length - 1] < x1d - 0.01) joistXs.push(+x1d.toFixed(3));
-  const bayCtrs = [];
-  for (let i = 0; i + 1 < joistXs.length; i++) bayCtrs.push((joistXs[i] + joistXs[i + 1]) / 2);
-  const overJoist = x => joistXs.some(jx => Math.abs(jx - x) < boardW / 2 + 1e-6);   // joist under the breaker footprint
-  const MIN_FIELD_SPAN = 1.5;   // ft — field sections shorter than this read as slivers
 
-  // FEWEST BREAKS FIRST: every region uses the hard MINIMUM plane count
-  // (nSeg−1 = ceil(len/stock)−1 — never an extra breaker), and regions are solved
-  // longest-first so later regions REUSE an already-chosen plane X whenever one
-  // satisfies their constraints — two long areas then share ONE breaker line
-  // instead of cutting the deck twice. Fewer breaks = longer deck-board runs.
-  // Among minimum-count layouts, each plane picks its spot by a small DP over a
-  // MIXED candidate pool. Per-plane cost (lower is better):
-  //   reuses a plane another region chose  −400   (no new break on the deck)
-  //   on a dimension-change line           −150   (natural break at a corner/step)
-  //   on a joist-bay centre                 −10   (cheapest blocking)
-  //   even-grid fallback                      0
-  //   footprint over a joist               +100   (needs blocking in BOTH bays)
-  // plus the existing sliver penalties on short field sections. A natural line nets
-  // −50 even when it sits over a joist, so corners still beat plain bay centres.
-  const SHARED_BONUS = -400, NATURAL_BONUS = -150, BAY_BONUS = -10, OVERJOIST_PEN = 100;
-  const chosenXs = [];   // planes picked so far (deck-wide) — later regions try to reuse them
+  // Enumerate-and-score breaker optimizer (helpers above). #breakerStyle morphs
+  // the weights: 0 = CHEAPEST (waste-driven, extra breakers discouraged) … 100 =
+  // BEST-LOOKING (symmetry / uniformity / feature alignment, extras free).
+  // FEATURES = the deck's dimension-change corners (divideXs) plus planes chosen
+  // by other regions — aligning to a chosen plane merges two breaker lines into
+  // one (the fewest-breaks behaviour), aligning to a corner keeps breaks natural.
+  // Weight source precedence: a Breaker-Lab candidate pass (per-render override)
+  // beats the LEARNED weights (fitted from the user's example evaluations — the
+  // slider is retired once those exist), which beat the live slider.
+  const bWeights = window._breakerWeightsOverride
+                || window._breakerLearnedWeights
+                || breakerWeightsFromT(Math.min(1, Math.max(0, (+(document.getElementById('breakerStyle')?.value ?? 60)) / 100)));
+  const BRK_MIN_SEG = 2;   // ft — hard minimum field-segment length
+  const chosenXs = [];     // planes picked so far (deck-wide) → features for later regions
   regions.sort((a, b) => (b.xR - b.xL) - (a.xR - a.xL));
   regions.forEach(reg => {
     const len = reg.xR - reg.xL;
+    if (len <= maxBoard + 1e-6) return;                       // fits one board — no breaker needed
+    const positions = joistXs.filter(x => x > reg.xL + 1e-3 && x < reg.xR - 1e-3)
+                             .map(x => +(x - reg.xL).toFixed(3));
+    const features  = [...divideXs, ...chosenXs]
+      .filter(x => x > reg.xL + 0.3 && x < reg.xR - 0.3)
+      .map(x => +(x - reg.xL).toFixed(3));
+    const layouts = generateBreakerLayouts(len, positions, BRK_MIN_SEG, maxBoard);
+    let best = null, bestScore = Infinity;
+    for (const b of layouts) {
+      const s = scoreBreakerLayout(b, len, features, bWeights);
+      if (s !== null && s < bestScore - 1e-12) { bestScore = s; best = b; }
+    }
     const nSeg = Math.ceil(len / maxBoard);
-    if (nSeg < 2) return;
-    const inReg = a => a.filter(v => v > reg.xL + 0.3 && v < reg.xR - 0.3);
-    const divs = inReg(divideXs), bays = inReg(bayCtrs), shared = inReg(chosenXs);
-    const segPen = (w, isEnd) => (w < MIN_FIELD_SPAN ? (isEnd ? 80 : 40) * (MIN_FIELD_SPAN - w) : 0);
-    // Optimal nP planes from the pooled candidates: every section ≤ one stock board,
-    // planes ≥ a board width apart. best[i][k] = cheapest way to make candidate i the
-    // k-th plane; reconstruct through prev[][].
-    const nP = nSeg - 1;
-    const cmap = new Map();
-    const addC = (x, bonus) => { const k = +x.toFixed(3); if (!cmap.has(k) || bonus < cmap.get(k)) cmap.set(k, bonus); };
-    for (let k = 1; k < nSeg; k++) addC(reg.xL + len * k / nSeg, 0);
-    bays.forEach(x => addC(x, BAY_BONUS));
-    divs.forEach(x => addC(x, NATURAL_BONUS));
-    shared.forEach(x => addC(x, SHARED_BONUS));   // added LAST → reuse beats every other tag at the same X
-    const cand = [...cmap.entries()].map(([x, bonus]) => ({ x, bonus })).sort((a, b) => a.x - b.x);
-    const N = cand.length;
-    const pc = i => cand[i].bonus + (overJoist(cand[i].x) ? OVERJOIST_PEN : 0);
-    const best = Array.from({ length: N }, () => new Array(nP + 1).fill(Infinity));
-    const prev = Array.from({ length: N }, () => new Array(nP + 1).fill(-1));
-    for (let i = 0; i < N; i++) {
-      const g0 = cand[i].x - reg.xL;
-      if (g0 >= boardW && g0 <= maxBoard + 1e-6) best[i][1] = pc(i) + segPen(g0, true);
-      for (let k = 2; k <= nP; k++)
-        for (let j = 0; j < i; j++) {
-          const g = cand[i].x - cand[j].x;
-          if (g < boardW || g > maxBoard + 1e-6 || best[j][k - 1] === Infinity) continue;
-          const c = best[j][k - 1] + pc(i) + segPen(g, false);
-          if (c < best[i][k] - 1e-9) { best[i][k] = c; prev[i][k] = j; }
-        }
-    }
-    let endI = -1, endC = Infinity;
-    for (let i = 0; i < N; i++) {
-      const gE = reg.xR - cand[i].x;
-      if (gE < boardW || gE > maxBoard + 1e-6 || best[i][nP] === Infinity) continue;
-      const c = best[i][nP] + segPen(gE, true);
-      if (c < endC - 1e-9) { endC = c; endI = i; }
-    }
-    let chosen;
-    if (endI >= 0) {
-      chosen = [];
-      for (let i = endI, k = nP; k >= 1; i = prev[i][k], k--) chosen.unshift(cand[i].x);
-    } else {
-      chosen = Array.from({ length: nP }, (_, k) => reg.xL + len * (k + 1) / nSeg);   // defensive even fallback
-    }
+    const chosen = (best && best.length)
+      ? best.map(b => reg.xL + b)
+      : Array.from({ length: nSeg - 1 }, (_, k) => reg.xL + len * (k + 1) / nSeg);   // defensive even fallback
     chosen.forEach(cx => {
       if (!chosenXs.some(px => Math.abs(px - cx) < 1e-6)) chosenXs.push(cx);
       seams.push({ x: +cx.toFixed(3), z: reg.z });
@@ -5359,35 +5448,85 @@ const MAX_FLIGHT_RISE_IN      = 151;  // IRC R311.7.3 max rise between landings
 const LANDING_TRAVEL_FT       = 4;    // platform depth in the direction of travel (≥ 36" code min)
 const LANDING_JOIST_OC_IN     = 16;   // platform framed in 2×8 PT @ 16" o.c.
 const LANDING_TUBE_DIA_IN     = 10;   // post footings: 10" form tubes
+const LANDING_STRINGER_BEAR_FT = 1;   // upper-flight stringer feet bear THIS far onto the platform
+                                      // (bare framing — no deck boards there — with a 2×4 kicker plate)
 function stairNeedsLanding(riseIn, stepRiseIn, stepRunIn) {
   const steps  = Math.max(1, Math.ceil(riseIn / stepRiseIn));
   const runFt  = steps * stepRunIn / 12, riseFt = riseIn / 12;
   const diagFt = Math.sqrt(runFt * runFt + riseFt * riseFt) + 0.5;   // calcStairs' stringer length
   return riseIn > MAX_FLIGHT_RISE_IN || diagFt > STOCK_LENGTHS[STOCK_LENGTHS.length - 1];
 }
-// Split N risers into an upper (deck-side) and lower flight. The LOWER flight takes
-// floor(N/2) so the landing sits at or below mid-height (shorter post run).
-function splitFlightSteps(riseIn, stepRiseIn) {
+// Split N risers into an upper (deck-side) and lower flight. The GUARD RAIL drives
+// the split: the rail from the deck must LAND ON THE LANDING in ONE section of the
+// chosen railing material, so if the balanced (mid-height) split leaves the upper
+// raked span longer than the product's longest section, the LANDING IS RAISED
+// (fewer upper steps) until the rail fits. Hard limit the rail must yield to: the
+// LOWER flight's stringer still has to come out of purchasable 2×12 stock.
+function splitFlightSteps(riseIn, stepRiseIn, stepRunIn = 11, railType = null) {
   const N = Math.max(1, Math.ceil(riseIn / stepRiseIn));
-  const L = Math.max(1, Math.floor(N / 2));
+  let L = Math.max(1, Math.floor(N / 2));                      // balanced default
+  const runFt = stepRunIn / 12, riseFt = stepRiseIn / 12;
+  const hypFt = Math.sqrt(runFt * runFt + riseFt * riseFt);    // slope length per step
+  const cosA  = runFt / hypFt;
+  if (railType) {
+    // Upper guard rail spans first-tread-centre → the landing-corner newel:
+    // (U − 0.5) steps of run, measured on the slope. Fit it in ONE section.
+    const maxSec = (railType.sectionFt && railType.sectionFt.length) ? Math.max(...railType.sectionFt) : 6;
+    const Umax   = Math.max(1, Math.floor(maxSec * cosA / runFt + 0.5));
+    if (N - L > Umax) L = N - Umax;                            // raise the landing
+  }
+  // Lower stringer must still fit stock (diagonal + the 6" cut buffer).
+  const maxStock = STOCK_LENGTHS[STOCK_LENGTHS.length - 1];
+  const Lmax = Math.max(1, Math.floor((maxStock - 0.5) / hypFt));
+  if (L > Lmax) L = Lmax;                                      // stringer wins over the rail
+  if (N - L < 1) L = N - 1;
   return { N, U: N - L, L };
 }
-// The landing platform: stair-width × LANDING_TRAVEL_FT mini-deck — 2×8 PT band +
-// joists @ 16" o.c., 5/4 decking (same species as the deck), 4 × 6×6 posts on
-// 10" tube footings (concrete POOLED into the deck's single optimized bag buy),
-// post bases, and a guard on the two open sides when the platform is ≥ 30" up.
+// Landing platform depth in the direction of travel. A STRAIGHT-through landing is
+// LANDING_TRAVEL_FT deep; a TURNED landing must be stair-width × stair-width — the
+// lower flight exits through a side face, which has to be a full stair width wide.
+function landingDepthFt(widthIn, turn) {
+  return (turn && turn !== 'straight') ? Math.max(LANDING_TRAVEL_FT, widthIn / 12) : LANDING_TRAVEL_FT;
+}
+// Landing frame sized by the SAME rules as the main deck — the deck's own joist OC
+// and the code span tables (Fairfax TABLE 2/3) — but for the landing's OWN small
+// spans, so it usually frames lighter than the deck (2×6 vs 2×10 etc.). Shared by
+// calcMidLanding AND the 3D platform block: render == BOM by single source.
+function landingFraming(widthIn, dFt) {
+  const wFt = Math.max(3, widthIn / 12);
+  const oc  = +(document.getElementById('joistSpacing')?.value) || 16;   // the DECK's joist OC
+  const jSize = codeMinJoistSize(dFt, oc) || '2x6';                      // smallest size that spans the travel depth
+  // Beam: smallest plies × depth that carries the landing joists across the stair
+  // width (influence ≈ half the travel depth each) — same TABLE 3 rule as the deck.
+  let bPlies = 2, bSize = '2x12';
+  outer:
+  for (const p of [2, 3])
+    for (const sz of ['2x6', '2x8', '2x10', '2x12'])
+      if (codeMaxBeamSpan(p, +sz.split('x')[1], Math.max(2, dFt / 2)) >= wFt) { bPlies = p; bSize = sz; break outer; }
+  return { oc, nJoist: Math.ceil(widthIn / oc) + 1,
+           jSize, jDepthFt: LUMBER_DEPTH_FT[jSize] ?? 7.25 / 12, jPriceLf: FRAMING_PRICE_LF[jSize] ?? FRAMING_PER_LF,
+           bSize, bPlies, bDepthFt: LUMBER_DEPTH_FT[bSize] ?? 7.25 / 12, bPriceLf: FRAMING_PRICE_LF[bSize] ?? FRAMING_PER_LF };
+}
+// The landing platform: stair-width × LANDING_TRAVEL_FT mini-deck — PT beams +
+// joists (landingFraming sizes) + RIM JOISTS capping the joist ends (the flight
+// stringers attach to them), 5/4 decking (same species as the deck), 4 × 6×6 posts
+// on 10" tube footings (concrete POOLED into the deck's single optimized bag buy),
+// post bases, hurricane ties at every joist-to-beam bearing, and a guard on the
+// open sides when the platform is ≥ 30" up.
 // platformTopFt = walking surface above the flight's foot grade.
-function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPriceLf, digAuger) {
-  const wFt = Math.max(3, widthIn / 12), dFt = LANDING_TRAVEL_FT;
-  const p28 = FRAMING_PRICE_LF['2x8'] ?? FRAMING_PER_LF;
-  // Frame like the deck itself: TWO 2-ply 2×8 BEAMS across the stair width (one at
-  // each end of travel, bearing on the post pairs) + 2×8 JOISTS spanning the travel
-  // depth between them @ 16" o.c. (both edge joists counted).
-  const nJoist   = Math.ceil((widthIn) / LANDING_JOIST_OC_IN) + 1;
-  const beamBuy  = optimizePosts(4, wFt, p28, 0, STOCK_LENGTHS);        // 2 beams × 2 plies
-  const joistBuy = optimizePosts(nJoist, dFt, p28, 0, STOCK_LENGTHS);
-  // 4 support posts: platform top − decking (1") − joist (7¼") − beam (7¼"), +6" trim buffer.
-  const postLen  = Math.max(1, platformTopFt - (1 + 7.25 + 7.25) / 12) + 0.5;
+function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPriceLf, digAuger, turn = 'straight') {
+  const wFt = Math.max(3, widthIn / 12), dFt = landingDepthFt(widthIn, turn);
+  const LF  = landingFraming(widthIn, dFt);
+  // Frame like the deck itself: TWO BEAMS across the stair width (one at each end
+  // of travel, bearing on the post pairs) + JOISTS spanning the travel depth
+  // between them at the deck's OC (both edge joists counted) + 2 RIM joists.
+  const nJoist   = LF.nJoist;
+  const beamBuy  = optimizePosts(2 * LF.bPlies, wFt, LF.bPriceLf, 0, STOCK_LENGTHS);   // 2 beams × plies
+  const joistBuy = optimizePosts(nJoist, dFt, LF.jPriceLf, 0, STOCK_LENGTHS);
+  const rimBuy   = optimizePosts(2, wFt, LF.jPriceLf, 0, STOCK_LENGTHS);   // rims cap the joist ends — stringer attachment
+  const ties     = nJoist * 2;                                             // H2.5A at each joist-to-beam bearing (2 beams)
+  // 4 support posts: platform top − decking (1") − joist depth − beam depth, +6" trim buffer.
+  const postLen  = Math.max(1, platformTopFt - (1 / 12 + LF.jDepthFt + LF.bDepthFt)) + 0.5;
   const postBuy  = optimizePosts(4, postLen, POST_PER_LF, 0.03, POST_STOCK_LENGTHS);
   // Footings: 4 × 10"Ø tubes to the deck's footing depth — concrete pooled by the caller.
   const fDepthFt   = Math.max(2, (footDepthIn || 36) / 12);
@@ -5395,21 +5534,36 @@ function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPr
   const tubeSticks = 4 * Math.max(1, Math.ceil(fDepthFt / TUBE_LEN_FT));
   const tubeCost   = +(tubeSticks * (TUBE_PRICE_EA[LANDING_TUBE_DIA_IN] ?? 17.99)).toFixed(2);
   const baseCost   = +(4 * HW.postBase).toFixed(2);                 // post bases (hardware)
-  // Decking: wFt × dFt of the SAME 5/4 boards, by the linear foot.
-  const deckLf   = Math.ceil(wFt * dFt / (5.5 / 12));
+  // Decking: the SAME 5/4 boards, by the linear foot — MINUS the stringer-bearing
+  // strip at the stair-entry edge (the upper flight's feet + kicker sit on bare
+  // framing there; boards would be in the way).
+  const deckDepth = Math.max(0.5, dFt - LANDING_STRINGER_BEAR_FT);
+  const deckLf   = Math.ceil(wFt * deckDepth / (5.5 / 12));
   const deckCost = +(deckLf * deckPriceLf).toFixed(2);
-  // Guard on the two OPEN sides (travel direction is open at both ends for the stairs).
+  // Kicker plate ON the platform: a PT 2×4 the upper stringers' notched seats rest on
+  // and toe-nail to, screwed down to the platform framing (3" structural screws —
+  // pooled with the blocking-screw pack by the caller).
+  const kickerBuy    = optimizePosts(1, wFt, RAILING_RAIL_PRICE, 0, STOCK_LENGTHS);
+  const kickerScrews = kickerScrewCount(wFt);
+  // Guard on the open sides: straight-through → both SIDE faces (stairs enter/exit the
+  // rims); turned → the far rim + the non-exit side (the stairs exit one side face).
+  // The side runs cover the WALKING plateau (dFt − the stringer-bearing strip, which
+  // sits under the flight and is guarded by the flight's own raked sections).
   const guarded   = platformTopFt * 12 >= 30;
-  const guardLf   = guarded ? Math.ceil(2 * dFt) : 0;
+  const plateauFt = Math.max(1, dFt - LANDING_STRINGER_BEAR_FT);
+  const guardLf   = guarded ? Math.ceil(turn !== 'straight' ? wFt + plateauFt : 2 * plateauFt) : 0;
   const guardCost = guarded ? +(guardLf * (railPriceLf || 0)).toFixed(2) : 0;
   const newelBuy  = guarded ? optimizePosts(4, STAIR_NEWEL_FT, RAILING_POST_LF_PRICE, 0, STOCK_LENGTHS)
                             : { boards: 0, lines: [], cost: 0 };
-  const lumberCost = +(beamBuy.cost + joistBuy.cost + postBuy.cost + newelBuy.cost + guardCost).toFixed(2);
+  const lumberCost = +(beamBuy.cost + joistBuy.cost + rimBuy.cost + postBuy.cost + newelBuy.cost + guardCost + kickerBuy.cost).toFixed(2);
   const laborHours = +(4 * (digAuger ? 0.5 : 2.5)   // dig 4 footings
                      + 4 * 0.4                      // set + plumb posts
-                     + 2.5                          // frame + deck the platform
+                     + 2.5 + 0.4                    // frame + rims + deck the platform
+                     + ties * 0.07                  // hurricane ties (same rate as the deck's)
                      + (guarded ? 1.0 : 0)).toFixed(1);
-  return { wFt, dFt, nJoist, beamBuy, joistBuy, postLen: +postLen.toFixed(1), postBuy,
+  return { wFt, dFt, nJoist, beamBuy, joistBuy, rimBuy, ties, postLen: +postLen.toFixed(1), postBuy,
+           jSize: LF.jSize, bSize: LF.bSize, bPlies: LF.bPlies, oc: LF.oc,
+           kickerBuy, kickerScrews,
            concreteCf, tubeSticks, tubeCost, baseCost, deckLf, deckCost,
            guarded, guardLf, guardCost, newelBuy, lumberCost, laborHours };
 }
@@ -5447,16 +5601,23 @@ function calcStairHandrail(steps, heightIn, runFt, hasGuard, rate = 30) {
 // using the SAME railing TYPE selected for the deck (priced as a per-lf system).
 // The caller multiplies by the number of guard sides actually built — a flight
 // side against the house (a no-rail section) gets no guard, so it isn't counted.
+// Stair newels stand at the SEAM between a tread's two 5/4×6 boards — the tread is
+// drawn (and built) treadRun = stepRun + riser (¾") + nosing (1") deep from its back
+// edge, so the mid-seam sits (riser + nosing)/2 = 7/8" DOWN-flight of the plain
+// (s+0.5)·stepRun tread centre. Every tread snap (shared layout + the split-flight
+// inline compositions) adds this offset; landing-corner knees do NOT.
+const TREAD_SEAM_OFF = (0.75 + 1) / 2 / 12;
 // Stair GUARD layout — SINGLE SOURCE for the 3D render AND the cost/BOM so they bill the
-// SAME newels, sections and rail footage (render=estimate=BOM). Newels land at the CENTRE
-// of the first & last step; the raked run between them is split into EQUAL sections, each
-// ≤ the product's longest stock section (continuous systems like cable ⇒ ~6' newel spacing).
+// SAME newels, sections and rail footage (render=estimate=BOM). Newels land at the SEAM
+// between the first & last step's tread boards; the raked run between them is split into
+// EQUAL sections, each ≤ the product's longest stock section (continuous systems like
+// cable ⇒ ~6' newel spacing).
 // The guard rail footage is that post-to-post raked span, parallel to the stringer.
 function stairGuardLayout(effRiseFt, totalRunFt, stepRunFt, railType) {
   const ang = Math.atan2(effRiseFt, Math.max(0.01, totalRunFt)), cosAng = Math.cos(ang) || 1;
   const steps = Math.max(1, Math.round(totalRunFt / Math.max(0.01, stepRunFt)));
-  const stepCenter = s => (s + 0.5) * stepRunFt;            // run-distance to step s's TREAD centre
-  const dTop = stepCenter(0), dBot = stepCenter(steps - 1); // end newels at the first/last tread centres
+  const stepCenter = s => (s + 0.5) * stepRunFt + TREAD_SEAM_OFF;   // run-distance to step s's tread-board SEAM
+  const dTop = stepCenter(0), dBot = stepCenter(steps - 1); // end newels at the first/last tread seams
   const spanRunFt   = Math.max(0.01, dBot - dTop);
   const spanSlopeFt = spanRunFt / cosAng;
   const maxSpan = (railType.sectionFt && railType.sectionFt.length) ? Math.max(...railType.sectionFt) : 6;
@@ -5685,13 +5846,13 @@ function _persistLaborCal() {
 }
 
 function calcLabor(sqFt, footings, joists, rate, digMethod = 'hand', stainHrs = 0,
-                   tieCount = 0, cut = null, boltCount = 0, layout = null) {
+                   tieCount = 0, cut = null, boltCount = 0, layout = null, heightIn = 36) {
   const isAuger   = digMethod === 'auger';
   const digHrs    = isAuger ? footings * 0.5 : footings * 2.5;
   const augerCost = isAuger ? AUGER_RENTAL : 0;
   // Each task carries a `part` id so the post-job actual-hours feedback can
   // calibrate labor PER install part (see LABOR_PARTS / laborCalFactor).
-  const tasks = [
+  const raw = [
     { name: 'Site prep & access', part: 'sitework',        hours: 1 },
     // Layout — batter boards, string lines (3-4-5 square), plumb-mark footings.
     ...(layout
@@ -5716,7 +5877,19 @@ function calcLabor(sqFt, footings, joists, rate, digMethod = 'hand', stainHrs = 
     { name: 'Decking install', part: 'decking',            hours: sqFt * 0.17        },
     { name: 'Trim & finishing', part: 'finish',            hours: sqFt * 0.04        },
     ...(stainHrs > 0 ? [{ name: 'Stain & seal (2 coats)', part: 'finish', hours: stainHrs }] : []),
-  ].map(t => ({ ...t, cost: t.hours * rate }));
+  ];
+  // Working at height slows the frame build: above ~6' the joists and beams go up
+  // overhead from ladders, above ~10' it's staging or a lift, and every board gets
+  // hoisted and repositioned. Graduated surcharge on the framing-part tasks only
+  // (cut stock, framing + ties, beam bolts) — ground-level work is unaffected.
+  const hFt = (heightIn || 36) / 12;
+  const highPct = hFt <= 6 ? 0 : hFt <= 10 ? 0.15 : hFt <= 14 ? 0.30 : 0.45;
+  if (highPct > 0) {
+    const framingHrs = raw.filter(t => t.part === 'framing').reduce((s, t) => s + t.hours, 0);
+    raw.push({ name: `High-work factor (deck ≈${Math.round(hFt)}′ up — ladder/staging install of joists &amp; beams, +${Math.round(highPct * 100)}%)`,
+               part: 'framing', hours: +(framingHrs * highPct).toFixed(1) });
+  }
+  const tasks = raw.map(t => ({ ...t, cost: t.hours * rate }));
   const totalHours = tasks.reduce((s, t) => s + t.hours, 0);
   return { tasks, totalHours, totalCost: totalHours * rate + augerCost, augerCost };
 }
@@ -6374,9 +6547,10 @@ function render() {
   // 4 support posts + footings) between them. stairSplit[i] is null for a normal
   // flight, else {N,U,L} — the same helper the 3D uses, so render == BOM flights.
   const _digAuger  = document.getElementById('digMethod')?.value === 'auger';
+  const stairTurn  = document.getElementById('stairLandingTurn')?.value || 'straight';
   const stairSplit = stairWidthsIn.map((w, i) => {
     const riseIn = flightRiseIn(i);
-    return stairNeedsLanding(riseIn, stairRise, stairRun) ? { riseIn, ...splitFlightSteps(riseIn, stairRise) } : null;
+    return stairNeedsLanding(riseIn, stairRise, stairRun) ? { riseIn, ...splitFlightSteps(riseIn, stairRise, stairRun, railType) } : null;
   });
   const STs = [], MIDLs = [];
   stairWidthsIn.forEach((w, i) => {
@@ -6386,7 +6560,7 @@ function render() {
     if (!sp) { STs.push(mk(flightRiseIn(i))); return; }
     STs.push(mk(sp.U * stairRise));                       // upper flight: deck → landing
     STs.push(mk(sp.L * stairRise));                       // lower flight: landing → grade
-    MIDLs.push(calcMidLanding(w, (sp.L * stairRise) / 12, species.price, fDepth, railType.railLf, _digAuger));
+    MIDLs.push(calcMidLanding(w, (sp.L * stairRise) / 12, species.price, fDepth, railType.railLf, _digAuger, stairTurn));
   });
   // Landing totals (all clusters). Kept OUT of ST so the per-flight stair sums stay pure.
   const MIDL = MIDLs.length ? {
@@ -6401,11 +6575,19 @@ function render() {
     guardLf:     MIDLs.reduce((s, m) => s + m.guardLf, 0),
     guardCost:  +MIDLs.reduce((s, m) => s + m.guardCost, 0).toFixed(2),
     posts:       4 * MIDLs.length,
+    dFt:         Math.max(...MIDLs.map(m => m.dFt)),
+    turn:        stairTurn,
     postLen:     Math.max(...MIDLs.map(m => m.postLen)),
+    guarded:     MIDLs.some(m => m.guarded),
+    jSize:       MIDLs[0].jSize, bSize: MIDLs[0].bSize, bPlies: MIDLs[0].bPlies, oc: MIDLs[0].oc,
+    ties:        MIDLs.reduce((s, m) => s + m.ties, 0),
     beamBuy:     mergeBuys(MIDLs.map(m => m.beamBuy)),
     joistBuy:    mergeBuys(MIDLs.map(m => m.joistBuy)),
+    rimBuy:      mergeBuys(MIDLs.map(m => m.rimBuy)),
     postBuy:     mergeBuys(MIDLs.map(m => m.postBuy)),
     newelBuy:    mergeBuys(MIDLs.map(m => m.newelBuy)),
+    kickerBuy:   mergeBuys(MIDLs.map(m => m.kickerBuy)),
+    kickerScrews: MIDLs.reduce((s, m) => s + m.kickerScrews, 0),
     laborHours: +MIDLs.reduce((s, m) => s + m.laborHours, 0).toFixed(1),
   } : null;
   const ST = STs.length ? {
@@ -6465,7 +6647,7 @@ function render() {
   const CUT = calcCutting(LUMBER[0].totalBoards, beamBoardCount);
   // Site layout: 2×4×8 batter boards + string lines to fix corners & footings.
   const LAY = calcLayout(countFootprintCorners(), posts, freestanding);
-  const L = calcLabor(sqFt, posts, F.joists, rate, digMethod, stainHrs, H.hurricaneTies, CUT, H.throughBolts, LAY);
+  const L = calcLabor(sqFt, posts, F.joists, rate, digMethod, stainHrs, H.hurricaneTies, CUT, H.throughBolts, LAY, heightIn);
 
   const GV = calcGravel(sqFt);   // drainage gravel under the deck footprint
   const CN = calcCopperNap(posts);  // field treatment at post-to-footing
@@ -6557,15 +6739,15 @@ function render() {
   _hwAdd('deckFast',     deckFastener.packs,             DF.count,               deckFastener.price);
   _hwAdd('nails',        hwPacks('hw.collatedNail3in'),  _nails,                 HW.collatedNail3in);
   _hwAdd('sdScrew',      hwPacks('stair.sdScrew'),       _sdScrews,              SD_SCREW_EA);
-  _hwAdd('hurricane',    hwPacks('hw.hurricaneTie'),     H.hurricaneTies,        HW.hurricaneTie);
-  _hwAdd('connNail',     hwPacks('hw.connectorNail'),    H.tieNails,             pb('hw.connectorNail'));
+  _hwAdd('hurricane',    hwPacks('hw.hurricaneTie'),     H.hurricaneTies + (MIDL ? MIDL.ties : 0),        HW.hurricaneTie);
+  _hwAdd('connNail',     hwPacks('hw.connectorNail'),    H.tieNails + (MIDL ? MIDL.ties * CONNECTOR_NAILS_PER_TIE : 0), pb('hw.connectorNail'));
   _hwAdd('hangers',      hwPacks('hw.joistHanger'),      H.hangers,              HW.joistHanger);
   _hwAdd('postBase',     hwPacks('hw.postBase'),         H.bases,                HW.postBase);
   _hwAdd('postCap',      hwPacks('hw.postCap'),          H.postCaps,             POST_CAP_EA);
   _hwAdd('nut',          hwPacks('hw.nut'),              H.throughBolts,         H.boltSpec ? H.boltSpec.nutEa : pb('hw.nut'));
   _hwAdd('washer',       hwPacks('hw.washer'),           H.throughBolts * 2,     H.boltSpec ? H.boltSpec.washerEa : pb('hw.washer'));
   _hwAdd('stringerConn', hwPacks('stair.stringerConn'),  ST ? ST.connectors : 0, STRINGER_CONNECTOR_EA);
-  _hwAdd('blockScrew',   hwPacks('hw.blockScrew'),       (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0), BLOCK_SCREW_EA);
+  _hwAdd('blockScrew',   hwPacks('hw.blockScrew'),       (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0) + (MIDL ? MIDL.kickerScrews : 0), BLOCK_SCREW_EA);
   _hwAdd('kicker',       hwPacks('stair.kickerScrew'),   LAND ? LAND.kickerScrews : 0, KICKER_SCREW_EA);
   const hwPackPremium = +Object.keys(HWPACK).reduce((s, k) => s + (HWPACK[k].cost - _hwEach[k]), 0).toFixed(2);
 
@@ -6601,6 +6783,8 @@ function render() {
   const matHardware = DF.cost + H.cost + BPF.cost + (HR ? HR.materialCost * stairFlights : 0)
                     + (BLOCKING ? BLOCKING.screwCost : 0)           // deck-blocking screws (loose base)
                     + stairBlockScrews * BLOCK_SCREW_EA             // stair-newel-block screws loose base (pack round-up is in hwPackPremium)
+                    + (MIDL ? MIDL.kickerScrews * BLOCK_SCREW_EA : 0)   // landing kicker-plate screws loose base
+                    + (MIDL ? MIDL.ties * (HW.hurricaneTie + CONNECTOR_NAILS_PER_TIE * pb('hw.connectorNail')) : 0)   // landing hurricane ties + nails loose base
                     + (H ? H.rimScrews * BLOCK_SCREW_EA : 0)        // rim-to-joist end screws loose base
                     + (LAND ? LAND.kickerScrewCost : 0)             // concrete screws anchoring the kicker plates
                     + (MIDL ? MIDL.baseCost : 0)                    // landing support-post bases
@@ -6743,8 +6927,8 @@ function render() {
     addBom('Beam post caps (Simpson BCS2-3/6Z — 3-ply beam on 6× post)', H.postCaps, 'pcs', POST_CAP_EA, HWPACK.postCap);
     addBom(`Post-cap structural screws (${POST_CAP_SCREWS}/cap)`, H.postCapScrews, 'pcs', SD_SCREW_EA, _sdBuy());
   }
-  addBom('Hurricane ties (H2.5AZ — 1 per joist-to-beam bearing)', H.hurricaneTies, 'pcs', HW.hurricaneTie, HWPACK.hurricane);
-  if (H.tieNails) addBom('Hurricane-tie connector nails (10d × 1½&Prime; HDG — 10/tie)', H.tieNails, 'nails', pb('hw.connectorNail'), HWPACK.connNail);
+  addBom(`Hurricane ties (H2.5AZ — 1 per joist-to-beam bearing${MIDL ? ' incl. landing' : ''})`, H.hurricaneTies + (MIDL ? MIDL.ties : 0), 'pcs', HW.hurricaneTie, HWPACK.hurricane);
+  if (H.tieNails) addBom('Hurricane-tie connector nails (10d × 1½&Prime; HDG — 10/tie)', H.tieNails + (MIDL ? MIDL.ties * CONNECTOR_NAILS_PER_TIE : 0), 'nails', pb('hw.connectorNail'), HWPACK.connNail);
   if (H.lateralAnchors) addBom(H.lateralLabel, H.lateralAnchors, 'pcs', H.lateralEa);
   // Knee bracing (Table 8, Method 2/3) — diagonal members + connection screws.
   if (LATERAL.braceCount) {
@@ -6764,8 +6948,8 @@ function render() {
   if (HWPACK.nails) addBom('Collated 3&Prime; framing nails — combined purchase (joist laps + beam plies)', _nails, 'nails', HW.collatedNail3in, HWPACK.nails);
   // Breaker blocking: added PT #2 (past cut-offs) + the screws fastening it to joists
   if (BLOCKING && BLOCKING.addedBoards) addBom(`Breaker blocking (${BLOCKING.sizeLabel} PT #2) — ${BLOCKING.stock}&prime;`, BLOCKING.addedBoards, 'pcs', BLOCKING.stock * (FRAMING_PRICE_LF[joistSize] ?? FRAMING_PER_LF));
-  const _allBlockScrews = (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0);
-  if (_allBlockScrews) addBom(`3&Prime; structural screws (${[(BLOCKING && BLOCKING.screwCount) ? 'breaker/railing-post blocking' : '', stairBlockScrews ? 'stair newels' : '', (H && H.rimScrews) ? `rim-to-joist ${RIM_SCREWS_PER_JOIST_END}/end` : ''].filter(Boolean).join(' + ')})`, _allBlockScrews, 'pcs', BLOCK_SCREW_EA, HWPACK.blockScrew);
+  const _allBlockScrews = (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0) + (MIDL ? MIDL.kickerScrews : 0);
+  if (_allBlockScrews) addBom(`3&Prime; structural screws (${[(BLOCKING && BLOCKING.screwCount) ? 'breaker/railing-post blocking' : '', stairBlockScrews ? 'stair newels' : '', (H && H.rimScrews) ? `rim-to-joist ${RIM_SCREWS_PER_JOIST_END}/end` : '', (MIDL && MIDL.kickerScrews) ? 'landing kickers' : ''].filter(Boolean).join(' + ')})`, _allBlockScrews, 'pcs', BLOCK_SCREW_EA, HWPACK.blockScrew);
   if (stairBlockFromCut) addBom(`Stair newel blocking (${stairBlockNom.replace('x','×')} PT, ${stairBlockBayFt.toFixed(1)}′ ea) — cut from framing off-cuts`, stairBlockFromCut, 'pcs', 0);
   if (stairBlockBuyN > 0) stairBlockBuy.lines.forEach(l => addBom(`Stair newel blocking (${stairBlockNom.replace('x','×')} PT, ${stairBlockBayFt.toFixed(1)}′ ea${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}) — ${l.stock}′ stock`, l.count, 'pcs', l.stock * FRAMING_PRICE_LF[stairBlockNom]));
   // Railing — decomposed to match the calculated material cost (rails+infill per
@@ -6806,14 +6990,18 @@ function render() {
   // Mid-flight stair LANDING platform (tall flight split — concrete pooled above)
   if (MIDL) {
     MIDL.beamBuy.lines.forEach(l =>
-      addBom(`Stair landing — 2-ply 2×8 PT beams (2 per landing, on the posts) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * (FRAMING_PRICE_LF['2x8'] ?? FRAMING_PER_LF)));
+      addBom(`Stair landing — ${MIDL.bPlies}-ply ${MIDL.bSize.replace('x', '×')} PT beams (2 per landing, on the posts) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * (FRAMING_PRICE_LF[MIDL.bSize] ?? FRAMING_PER_LF)));
     MIDL.joistBuy.lines.forEach(l =>
-      addBom(`Stair landing — 2×8 PT joists (@ ${LANDING_JOIST_OC_IN}&Prime; o.c.) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * (FRAMING_PRICE_LF['2x8'] ?? FRAMING_PER_LF)));
+      addBom(`Stair landing — ${MIDL.jSize.replace('x', '×')} PT joists (@ ${MIDL.oc}&Prime; o.c., the deck's spacing) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * (FRAMING_PRICE_LF[MIDL.jSize] ?? FRAMING_PER_LF)));
+    MIDL.rimBuy.lines.forEach(l =>
+      addBom(`Stair landing — ${MIDL.jSize.replace('x', '×')} PT rim joists (cap the joist ends — stringer attachment) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * (FRAMING_PRICE_LF[MIDL.jSize] ?? FRAMING_PER_LF)));
     addBom(`Stair landing — surface decking (${ST.treadLabel})`, MIDL.deckLf, 'lf', species.price);
     MIDL.postBuy.lines.forEach(l =>
       addBom(`Stair landing — support posts (6×6 PT × ~${MIDL.postLen}′) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard} cut/board` : ''}`, l.count, 'pcs', l.stock * POST_PER_LF));
     addBom(`Stair landing — form tubes (${LANDING_TUBE_DIA_IN}&Prime; × 48&Prime;)`, MIDL.tubeSticks, 'pcs', TUBE_PRICE_EA[LANDING_TUBE_DIA_IN] ?? 17.99);
     addBom('Stair landing — post bases (ABA66Z)', MIDL.posts, 'pcs', HW.postBase);
+    MIDL.kickerBuy.lines.forEach(l =>
+      addBom(`Stair landing — kicker plate (2×4 PT, upper stringers bear &amp; toe-nail) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * RAILING_RAIL_PRICE));
     if (MIDL.guarded) {
       addBom(`Stair landing — guard rail, open sides (${railType.label})`, MIDL.guardLf, 'lf', railType.railLf);
       MIDL.newelBuy.lines.forEach(l =>
@@ -7193,7 +7381,7 @@ function render() {
     ` : ''}
     ${MIDL ? `
     <div style="margin-top:4px;font-size:11px;color:#f97316">Mid-flight landing required — a single flight would exceed ${MAX_FLIGHT_RISE_IN}&Prime; rise (IRC R311.7.3) or the longest 2×12 stringer stock; each tall flight is split with a framed landing platform</div>
-    ${subline(`Landing platform${MIDL.count > 1 ? `s ×${MIDL.count}` : ''} (stair-width × ${LANDING_TRAVEL_FT}′ — 2 × 2-ply 2×8 beams on the posts + 2×8 joists @ ${LANDING_JOIST_OC_IN}&Prime; o.c. + ${ST.treadLabel} surface)`, `${MIDL.beamBuy.lines.concat(MIDL.joistBuy.lines).map(l => `${l.count}×${l.stock}′`).join(' + ')} + ${MIDL.deckLf} lf decking`)}
+    ${subline(`Landing platform${MIDL.count > 1 ? `s ×${MIDL.count}` : ''} (stair-width × ${MIDL.dFt}′${MIDL.turn !== 'straight' ? ` · stairs turn ${MIDL.turn}` : ''} — 2 × ${MIDL.bPlies}-ply ${MIDL.bSize.replace('x', '×')} beams on the posts + ${MIDL.jSize.replace('x', '×')} joists @ ${MIDL.oc}&Prime; o.c. + rim joists (stringer attachment) + ${MIDL.ties} hurricane ties + ${ST.treadLabel} surface · 2×4 kicker at the upper-stringer feet, boards omitted there)`, `${MIDL.beamBuy.lines.concat(MIDL.joistBuy.lines).map(l => `${l.count}×${l.stock}′`).join(' + ')} + ${MIDL.deckLf} lf decking`)}
     ${subline(`Landing support posts (${MIDL.posts} × 6×6 PT, ~${MIDL.postLen}′ — on ${LANDING_TUBE_DIA_IN}&Prime; tube footings)`, `${MIDL.postBuy.lines.map(l => `${l.count}×${l.stock}′`).join(' + ')} stock · ${MIDL.concreteCf} cf pooled above`)}
     ${MIDL.guarded ? subline(`Landing guard (2 open sides, ${railType.label})`, `${MIDL.guardLf} lf + ${MIDL.posts} newels`) : ''}
     ${line('Landing platform material', usd(MIDL.lumberCost + MIDL.deckCost + MIDL.tubeCost + MIDL.baseCost), 'cost')}
@@ -7322,8 +7510,208 @@ const DEFAULT_LAYOUT = (() => {
       stairEnabled:true, stairRiseIn:'7', stairRunIn:'11', stairRisers:true },
   };
 })();
+
+// ═══ Breaker Placement Lab ══════════════════════════════════════════════
+// "Compose a couple example decks and evaluate them": each example is applied,
+// the optimizer runs once per COST↔LOOKS preset, the DISTINCT placements are
+// shown side by side and the user clicks the one they'd build. After 3+
+// evaluations, labFinalize() fits the weights (the preset family most
+// consistent with the picks), stores them, hides the #breakerStyle slider and
+// computeDeckingLayout uses window._breakerLearnedWeights from then on.
+const LAB_LS_KEY = 'deckEstimatorBreakerLab_v1';   // literal key (hoisted-const gotcha)
+function _labStore() { try { return JSON.parse(localStorage.getItem(LAB_LS_KEY)) || { evals: [] }; } catch { return { evals: [] }; } }
+function _labWrite(s) { try { localStorage.setItem(LAB_LS_KEY, JSON.stringify(s)); return true; } catch { return false; } }
+const LAB_PRESETS = [
+  { key: 'cost',      label: 'Cost-first',    t: 0    },
+  { key: 'costlean',  label: 'Cost-leaning',  t: 0.3  },
+  { key: 'balanced',  label: 'Balanced',      t: 0.55 },
+  { key: 'lookslean', label: 'Looks-leaning', t: 0.8  },
+  { key: 'looks',     label: 'Looks-first',   t: 1    },
+];
+// Example decks: small, flat, stair-less, board runs > one stock length so the
+// optimizer has real choices; shapes exercise corners / shared planes / plain runs.
+const LAB_EXAMPLES = (() => {
+  const rect = (cells, r0, c0, w, h) => { for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) cells.push([r, c]); };
+  const ctl = () => Object.assign({}, DEFAULT_LAYOUT.controls,
+    { stairEnabled: false, demoEnabled: false, deckHeight: '36', gradeBR: '0', deckLayAngle: 'perp' });
+  const mk = (name, build) => { const cells = []; build(cells); return { name,
+    layout: { v: 1, cellSize: 2, cells, stairCells: [], noRailCells: [], noFootingCells: [], controls: ctl() } }; };
+  return [
+    mk('Long porch 36×12',   c => rect(c, 0, 0, 18, 6)),
+    mk('L-shape 32×24',      c => { rect(c, 0, 0, 8, 12); rect(c, 6, 8, 8, 6); }),
+    mk('T-shape 40×20',      c => { rect(c, 0, 0, 20, 4); rect(c, 4, 6, 8, 6); }),
+    mk('Bump-out 32×14',     c => { rect(c, 0, 0, 16, 7); rect(c, 7, 2, 5, 3); }),
+    mk('U-shape 30×20',      c => { rect(c, 0, 0, 3, 10); rect(c, 0, 12, 3, 10); rect(c, 5, 0, 15, 5); }),
+  ];
+})();
+let _labReturn = null, _labCurrent = null;
+function openBreakerLab() {
+  if (!_labReturn) _labReturn = captureLayout();      // restore the user's deck on close
+  let ov = document.getElementById('breakerLabView');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'breakerLabView'; document.body.appendChild(ov); }
+  _labRenderHome(ov);
+  ov.classList.add('open');
+}
+function closeBreakerLab() {
+  const ov = document.getElementById('breakerLabView');
+  if (ov) ov.classList.remove('open');
+  if (_labReturn) { const back = _labReturn; _labReturn = null; applyLayout(back); }
+}
+function _labRenderHome(ov) {
+  const st = _labStore();
+  const done = new Set(st.evals.map(e => e.name));
+  const rows = LAB_EXAMPLES.map((ex, i) =>
+    `<button type="button" class="bl-ex" onclick="labShowExample(${i})">${done.has(ex.name) ? '✅' : '▫️'} ${ex.name}</button>`).join('');
+  const customs = st.evals.filter(e => e.custom).map(e => `<span style="font-size:.78rem;margin-right:.6rem">✅ ${e.name}</span>`).join('');
+  const n = st.evals.length;
+  ov.innerHTML = `<div class="bl-box">
+    <div class="bl-bar"><span>🧪 Breaker Placement Lab</span>
+      <span><button type="button" onclick="closeBreakerLab()" title="Close">&times;</button></span></div>
+    <div class="bl-body">
+      <p style="margin:.2rem 0 .4rem">Pick the breaker-board placement <b>you would build</b> on a few example decks.
+      Each candidate is your optimizer under a different COST ⟷ LOOKS weighting.
+      After <b>3+</b> examples, lock it in — the slider goes away and the learned
+      weighting places the breakers on every deck.</p>
+      <div class="bl-exlist">${rows}
+        <button type="button" class="bl-ex" onclick="labShowExample(-1)">➕ use the CURRENT deck</button>
+      </div>
+      ${customs ? `<div style="margin:.3rem 0">${customs}</div>` : ''}
+      ${st.learned ? `<p style="color:var(--accent2);font-size:.8rem">Learned placement is ACTIVE (fit t=${st.learned.t} from ${st.learned.examples} examples). Re-evaluate and lock in again to refit.</p>` : ''}
+      <div class="bl-foot">
+        <span style="color:var(--muted)">${n} example${n === 1 ? '' : 's'} evaluated</span>
+        <span>
+          <button type="button" class="bl-btn" ${n >= 3 ? '' : 'disabled'} onclick="labFinalize()">🔒 Lock in the learned placement${n < 3 ? ` (${n}/3)` : ''}</button>
+          <button type="button" class="bl-btn bl-ghost" onclick="resetBreakerLab()">Reset</button>
+        </span>
+      </div>
+    </div></div>`;
+}
+function labShowExample(i) {
+  const ex = i >= 0 ? LAB_EXAMPLES[i]
+    : { name: 'Current deck', custom: true, layout: _labReturn || captureLayout() };
+  applyLayout(JSON.parse(JSON.stringify(ex.layout)));
+  const cands = [];
+  try {
+    for (const p of LAB_PRESETS) {
+      window._breakerWeightsOverride = breakerWeightsFromT(p.t);
+      const DL = computeDeckingLayout();
+      const xs = (DL.breakers || []).map(b => +b.x.toFixed(2)).sort((a, b) => a - b);
+      const sig = xs.join('|');
+      const hit = cands.find(c => c.sig === sig);
+      if (hit) hit.presets.push(p.key);
+      else cands.push({ sig, xs, presets: [p.key], breakers: (DL.breakers || []).map(b => ({ x: b.x, z0: b.z0, z1: b.z1 })) });
+    }
+  } finally { window._breakerWeightsOverride = null; }
+  _labCurrent = { name: ex.name, custom: !!ex.custom, cands };
+  _labRenderExample();
+}
+function _labRenderExample() {
+  const ov = document.getElementById('breakerLabView');
+  const { name, cands } = _labCurrent;
+  const prev = _labStore().evals.find(e => e.name === name);
+  const none = cands.every(c => !c.xs.length);
+  const cards = none
+    ? `<p style="color:var(--muted)">This deck needs no breaker boards (every board run fits one stock length, or the field is laid diagonally) — there is nothing to evaluate here. Pick a larger example.</p>`
+    : cands.map((c, ci) => `
+      <div class="bl-card${prev && prev.chosenSig === c.sig ? ' bl-chosen' : ''}" onclick="labChoose(${ci})">
+        ${_labSvg(c)}
+        <div class="bl-cap">${c.xs.length} breaker${c.xs.length === 1 ? '' : 's'} · <span style="color:var(--muted)">${c.presets.map(k => (LAB_PRESETS.find(p => p.key === k) || {}).label).join(' / ')}</span></div>
+      </div>`).join('');
+  ov.innerHTML = `<div class="bl-box">
+    <div class="bl-bar"><span>🧪 ${name} — which would you build?</span>
+      <span><button type="button" onclick="openBreakerLab()" title="Back to the examples">←</button>
+      <button type="button" onclick="closeBreakerLab()" title="Close">&times;</button></span></div>
+    <div class="bl-body">
+      ${!none && cands.length === 1 ? '<p style="color:var(--muted);margin:.2rem 0 .5rem">Every weighting agrees on this deck — clicking it still records the example.</p>'
+        : '<p style="color:var(--muted);margin:.2rem 0 .5rem">Orange lines are the breaker boards. Click the layout you would build.</p>'}
+      <div class="bl-cards">${cards}</div>
+    </div></div>`;
+}
+function labChoose(ci) {
+  const { name, custom, cands } = _labCurrent;
+  const c = cands[ci];
+  if (!c) return;
+  const st = _labStore();
+  st.evals = st.evals.filter(e => e.name !== name);
+  st.evals.push({ name, custom, ts: Date.now(), chosenSig: c.sig, chosenXs: c.xs,
+                  chosenPresets: c.presets,
+                  candidates: cands.map(k => ({ presets: k.presets, xs: k.xs })),
+                  layout: custom ? (_labReturn || null) : null });   // keep custom decks for future refits
+  _labWrite(st);
+  const ov = document.getElementById('breakerLabView');
+  if (ov) _labRenderHome(ov);
+}
+function labFinalize() {
+  const st = _labStore();
+  if (st.evals.length < 3) { alert('Evaluate at least 3 examples first.'); return; }
+  // The learned fit (v1): the COST↔LOOKS position most consistent with the picks —
+  // count how often each preset produced the chosen layout, average the t of the
+  // tied winners. chosenXs stay stored, so a richer fit can replace this later.
+  const score = {};
+  LAB_PRESETS.forEach(p => score[p.key] = 0);
+  st.evals.forEach(ev => (ev.chosenPresets || []).forEach(k => { if (k in score) score[k]++; }));
+  const max = Math.max(...LAB_PRESETS.map(p => score[p.key]));
+  const top = LAB_PRESETS.filter(p => score[p.key] === max);
+  const tStar = top.reduce((s, p) => s + p.t, 0) / top.length;
+  st.learned = { t: +tStar.toFixed(2), weights: breakerWeightsFromT(tStar), examples: st.evals.length, ts: Date.now() };
+  _labWrite(st);
+  window._breakerLearnedWeights = st.learned.weights;
+  _labApplyLearnedUI(true);
+  closeBreakerLab();   // restores the user's deck and re-renders under the learned weights
+}
+function resetBreakerLab() {
+  if (!confirm('Clear the learned placement and all example evaluations, and bring the COST ⟷ LOOKS slider back?')) return;
+  _labWrite({ evals: [] });
+  window._breakerLearnedWeights = null;
+  _labApplyLearnedUI(false);
+  const ov = document.getElementById('breakerLabView');
+  if (ov && ov.classList.contains('open')) _labRenderHome(ov);
+  else render();
+}
+function _labApplyLearnedUI(on) {
+  const f = document.getElementById('breakerStyleField');
+  const nn = document.getElementById('breakerLearnedNote');
+  if (f)  f.style.display  = on ? 'none' : '';
+  if (nn) nn.style.display = on ? '' : 'none';
+}
+// Top-view thumbnail of the APPLIED example: footprint cells + breaker lines.
+function _labSvg(c) {
+  let minR = 1e9, maxR = -1, minC = 1e9, maxC = -1;
+  for (let r = 0; r < ROWS; r++) for (let cc = 0; cc < COLS; cc++) if (grid[r][cc]) {
+    if (r < minR) minR = r; if (r > maxR) maxR = r;
+    if (cc < minC) minC = cc; if (cc > maxC) maxC = cc;
+  }
+  if (maxR < 0) return '';
+  const x0 = minC * cellSize, z0 = minR * cellSize;
+  const W = (maxC - minC + 1) * cellSize, H = (maxR - minR + 1) * cellSize;
+  const sc = Math.min(230 / W, 150 / H);
+  let rects = '';
+  for (let r = minR; r <= maxR; r++) {                    // one rect per horizontal cell run
+    let run = null;
+    for (let cc = minC; cc <= maxC + 1; cc++) {
+      const on = cc <= maxC && grid[r][cc];
+      if (on && run === null) run = cc;
+      if (!on && run !== null) {
+        rects += `<rect x="${((run - minC) * cellSize * sc).toFixed(1)}" y="${((r - minR) * cellSize * sc).toFixed(1)}" width="${((cc - run) * cellSize * sc).toFixed(1)}" height="${(cellSize * sc).toFixed(1)}"/>`;
+        run = null;
+      }
+    }
+  }
+  const lines = c.breakers.map(b =>
+    `<line x1="${((b.x - x0) * sc).toFixed(1)}" y1="${((b.z0 - z0) * sc).toFixed(1)}" x2="${((b.x - x0) * sc).toFixed(1)}" y2="${((b.z1 - z0) * sc).toFixed(1)}"/>`).join('');
+  return `<svg viewBox="0 0 ${(W * sc).toFixed(0)} ${(H * sc).toFixed(0)}" width="${(W * sc).toFixed(0)}" height="${(H * sc).toFixed(0)}" style="display:block">
+    <g fill="var(--surface)" stroke="var(--border)" stroke-width="1">${rects}</g>
+    <g stroke="#f97316" stroke-width="3" stroke-linecap="round">${lines}</g></svg>`;
+}
+
 applyPriceBook();              // catalog + any saved overrides become the live prices
+// Learned breaker weights (if the Lab was finalized) take over BEFORE the first render.
+try {
+  const _bl0 = _labStore();
+  if (_bl0.learned && _bl0.learned.weights) window._breakerLearnedWeights = _bl0.learned.weights;
+} catch (e) {}
 applyLayout(DEFAULT_LAYOUT);   // builds the grid, sets all controls, renders
+if (window._breakerLearnedWeights) _labApplyLearnedUI(true);   // slider retired while learned mode is on
 
 // The railing-length choices are the Home Depot stock sections for the selected
 // system; repopulate on every type change. 'auto' (default) = waste-optimal length.
@@ -8336,7 +8724,9 @@ let _cam3dRestore = null;   // saved orbit/zoom/pan to keep the view across a li
 // re-renders (grade tweaks rebuild the scene) and is driven by the checkbox panel,
 // the ⌫ Labels button, and the L hotkey alike.
 const LABEL_CATS = ['post', 'beam', 'beamSpan', 'joist', 'rim', 'splice', 'overhang', 'rip', 'footing', 'deckHeight'];
-let _labelCatVis = {};   // cat -> false when hidden; absent/true = shown.
+// cat -> false when hidden; absent/true = shown. Every category (incl. the 'other'
+// fallback) starts HIDDEN — the render opens clean; the Labels panel / L key reveal.
+let _labelCatVis = Object.fromEntries([...LABEL_CATS, 'other'].map(c => [c, false]));
 // Derive a label's category from its text so every addLabel() call is auto-tagged
 // (no per-call-site edits). Order matters: 'post buried' is a FOOTING, checked before 'post '.
 function labelCat(t) {
@@ -10119,20 +10509,49 @@ function init3D() {
       // a too-tall flight becomes upper flight → platform (LANDING_TRAVEL_FT deep, on its
       // own posts) → lower flight. Steps below the landing shift OUT by the platform depth.
       const SPLITd    = stairNeedsLanding(heightIn + flightDropIn, riseIn3d, runIn3d)
-                        ? splitFlightSteps(heightIn + flightDropIn, riseIn3d) : null;
-      const LAND_D    = SPLITd ? LANDING_TRAVEL_FT : 0;
+                        ? splitFlightSteps(heightIn + flightDropIn, riseIn3d, runIn3d, railType3d) : null;
+      const TURN      = SPLITd ? (document.getElementById('stairLandingTurn')?.value || 'straight') : 'straight';
+      const LAND_D    = SPLITd ? landingDepthFt(stairWFt * 12, TURN) : 0;   // turned landing = stair-width square
       const LOWERn    = SPLITd ? SPLITd.L : 0;                       // risers below the landing (step i counts from the BOTTOM)
-      const distShift = i => (SPLITd && i < LOWERn ? LAND_D : 0);
       const platTopY  = SPLITd ? LOWERn * stepRise - flightDropFt : 0;   // platform walking surface
       const upperRunD = SPLITd ? SPLITd.U * stepRun : 0;                 // run length of the upper flight
+      // The platform tucks UNDER the upper flight by the stringer-bearing depth: its
+      // near edge sits LANDING_STRINGER_BEAR_FT behind the last riser face, the feet
+      // rest on that strip (bare framing + kicker) and the WALKING boards begin right
+      // where the last riser lands. Everything past the platform therefore shifts by
+      // LAND_D − BEAR, not the full LAND_D.
+      const PLAT0      = SPLITd ? upperRunD - LANDING_STRINGER_BEAR_FT : 0;      // platform near edge
+      const PLAT_SHIFT = SPLITd ? LAND_D - LANDING_STRINGER_BEAR_FT : 0;         // lower-flight offset past the upper run
+      const distShift  = i => (SPLITd && i < LOWERn ? PLAT_SHIFT : 0);
+      // TURNED landing: the lower flight descends 90° off the platform's side face. Its
+      // frame2: axis = the original ACROSS axis (facing descent, LEFT = (dz,−dx)); its
+      // across-centre lies on the original run axis at the platform's middle.
+      const T2 = (SPLITd && TURN !== 'straight') ? (() => {
+        const fHoriz = sSide === 'left' || sSide === 'right';
+        const dx = fHoriz ? ((sSide === 'right') ? 1 : -1) : 0;
+        const dz = fHoriz ? 0 : ((sSide === 'back') ? 1 : -1);
+        const [tx, tz] = TURN === 'left' ? [dz, -dx] : [-dz, dx];
+        const side2  = tx === 1 ? 'right' : tx === -1 ? 'left' : tz === 1 ? 'back' : 'front';
+        const horiz2 = side2 === 'left' || side2 === 'right';
+        const sign2  = (side2 === 'front' || side2 === 'left') ? -1 : 1;
+        const acrossC = fHoriz ? sCZ : sCX;                          // platform centre on the across axis
+        return { side2, horiz2, sign2,
+                 edge2:   acrossC + sign2 * (stairWFt / 2),          // the platform side face the flight exits
+                 centre2: flightEdge + flightSign * (PLAT0 + LAND_D / 2),   // lower flight's across-centre = platform travel-centre
+                 exitSo:  sign2 };                                   // which so-side of frame1 the exit opens
+      })() : null;
       for (let i = 0; i < steps; i++) {
         const yBase = i * stepRise - flightDropFt;   // flight shifted down onto the lower ground
         const dist  = (steps - 1 - i) * stepRun + distShift(i);   // lower flight sits PAST the landing
         const topY  = yBase + stepRise;                       // this tread's walking surface
-        const horiz = sSide === 'left' || sSide === 'right';  // flight runs along world X
-        const base  = flightEdge;
-        const sign  = flightSign;
-        const nearEdge = base + sign * dist;                  // deck-side edge of this tread
+        // TURNED landing: steps BELOW it draw in frame2 (the flight's rotated axis).
+        const useT2 = T2 && i < LOWERn;
+        const horiz = useT2 ? T2.horiz2 : (sSide === 'left' || sSide === 'right');
+        const sign  = useT2 ? T2.sign2  : flightSign;
+        const base  = useT2 ? T2.edge2  : flightEdge;
+        const eAcross = useT2 ? T2.centre2 : ((sSide === 'left' || sSide === 'right') ? sCZ : sCX);
+        const eDist = useT2 ? (steps - 1 - i) * stepRun - upperRunD : dist;
+        const nearEdge = base + sign * eDist;                 // top-side edge of this tread
 
         // Tread = the SAME 5/4×6 species deck boards it is billed as — `treadBoards`
         // boards laid across the run in deckMat, 1" thick, butted with a 1/8" gap —
@@ -10148,7 +10567,7 @@ function init3D() {
           const tb = new THREE.Mesh(
             horiz ? new THREE.BoxGeometry(boardDepth, treadH, stairWFt)
                   : new THREE.BoxGeometry(stairWFt, treadH, boardDepth), deckMat);
-          tb.position.set(horiz ? rc : sCX, topY - treadH / 2, horiz ? sCZ : rc);
+          tb.position.set(horiz ? rc : eAcross, topY - treadH / 2, horiz ? eAcross : rc);
           scene.add(tb);
         }
 
@@ -10163,7 +10582,7 @@ function init3D() {
           const riser = new THREE.Mesh(
             horiz ? new THREE.BoxGeometry(riserThk, riserH, stairWFt)
                   : new THREE.BoxGeometry(stairWFt, riserH, riserThk), riserMat);
-          riser.position.set(horiz ? riserRC : sCX, yBase + riserH / 2, horiz ? sCZ : riserRC);
+          riser.position.set(horiz ? riserRC : eAcross, yBase + riserH / 2, horiz ? eAcross : riserRC);
           scene.add(riser);
         }
       }
@@ -10184,9 +10603,10 @@ function init3D() {
         const treadOC   = sp.treadOC ?? (isComp ? 12 : 16);
         const nStr      = Math.ceil((stairWFt * 12) / treadOC) + 1;
         const strSegs = SPLITd
-          ? [{ n: SPLITd.U, top: heightFt, edge: flightEdge, ground: false },
-             { n: LOWERn,   top: platTopY, edge: flightEdge + flightSign * (upperRunD + LAND_D), ground: true }]
-          : [{ n: steps,    top: heightFt, edge: flightEdge, ground: true }];
+          ? [{ n: SPLITd.U, top: heightFt, edge: flightEdge, ground: false, side: sSide, cx: sCX, cz: sCZ },
+             T2 ? { n: LOWERn, top: platTopY, edge: T2.edge2, ground: true, side: T2.side2, cx: T2.centre2, cz: T2.centre2 }
+                : { n: LOWERn, top: platTopY, edge: flightEdge + flightSign * (upperRunD + PLAT_SHIFT), ground: true, side: sSide, cx: sCX, cz: sCZ }]
+          : [{ n: steps,    top: heightFt, edge: flightEdge, ground: true, side: sSide, cx: sCX, cz: sCZ }];
         strSegs.forEach(SEGQ => {
         const totalRun3 = SEGQ.n * stepRun;
         const segRise   = SEGQ.n * stepRise;
@@ -10212,6 +10632,11 @@ function init3D() {
           fullOutline.push([(s + 1) * stepRun, segTop -  s      * stepRise]);   // tread cut
           fullOutline.push([(s + 1) * stepRun, segTop - (s + 1) * stepRise]);   // riser cut
         }
+        // Both segments end with the plain plumb foot down to the throat. For the UPPER
+        // flight of a split, the platform tucks LANDING_STRINGER_BEAR_FT under the flight,
+        // so the clip at the platform's frame top carves the natural level SEAT into the
+        // stringer's bottom end (and the notch rides the landing kicker) — the same way
+        // the ground clip seats a whole flight at grade.
         fullOutline.push([totalRun3, undersideY(totalRun3)]);         // plumb foot down to the throat
         fullOutline.push([0, yBL]);                                   // throat back to the top-side bottom
         // Sutherland–Hodgman clip of the (simple) outline to the half-plane y ≥ yCut: keeps the
@@ -10256,13 +10681,15 @@ function init3D() {
           // while each stringer seats on the real grade. (Dropped −treadH via sm.position.y, so
           // local y=treadH maps to world grade 0; the footing top sits a hair above, +0.006.)
           const gdK          = stairFootDropFtAt(sCX, sCZ, sSide, heightIn, riseIn3d, runIn3d, off);
-          // Ground segment: bear on the footing (clip at ITS ground, kicker notch). Upper
-          // segment of a split flight: bear ON the landing platform surface — no kicker.
+          // Ground segment: bear on the footing (clip at ITS ground). Upper segment of a
+          // split flight: bear on the landing platform FRAMING (the deck boards are
+          // omitted over the bearing strip) — frame top = surface − treadH, so in the
+          // mesh's local frame (offset −treadH) the seat sits at platTopY.
           const footTopLocal = SEGQ.ground ? treadH + 0.006 - gdK
-                                           : platTopY + treadH + 0.006;
+                                           : platTopY + 0.006;
           const poly = clipToGround(fullOutline, footTopLocal);
           if (poly.length < 3) continue;                              // board entirely below its bearing → nothing to draw
-          if (SEGQ.ground) notchEnd(poly, footTopLocal);              // kicker notch only at the ground foot
+          notchEnd(poly, footTopLocal);                               // kicker notch at BOTH feet (ground + landing kicker)
           const shape = new THREE.Shape();
           shape.moveTo(poly[0][0], poly[0][1]);
           for (let i = 1; i < poly.length; i++) shape.lineTo(poly[i][0], poly[i][1]);
@@ -10270,22 +10697,22 @@ function init3D() {
           const strGeom = new THREE.ExtrudeGeometry(shape, { depth: sThk, bevelEnabled: false });
           const sm  = new THREE.Mesh(strGeom, strMat);
 
-          if (sSide === 'back') {
+          if (SEGQ.side === 'back') {
             // local u → world +Z,  extrude (local +Z) → world −X
             sm.rotation.y = -Math.PI / 2;
-            sm.position.set(sCX + off + sThk / 2, 0, SEGQ.edge);
-          } else if (sSide === 'front') {
+            sm.position.set(SEGQ.cx + off + sThk / 2, 0, SEGQ.edge);
+          } else if (SEGQ.side === 'front') {
             // local u → world −Z,  extrude → world +X
             sm.rotation.y = Math.PI / 2;
-            sm.position.set(sCX + off - sThk / 2, 0, SEGQ.edge);
-          } else if (sSide === 'right') {
+            sm.position.set(SEGQ.cx + off - sThk / 2, 0, SEGQ.edge);
+          } else if (SEGQ.side === 'right') {
             // local u → world +X,  extrude → world +Z
             sm.rotation.y = 0;
-            sm.position.set(SEGQ.edge, 0, sCZ + off - sThk / 2);
+            sm.position.set(SEGQ.edge, 0, SEGQ.cz + off - sThk / 2);
           } else {
             // local u → world −X,  extrude → world −Z
             sm.rotation.y = Math.PI;
-            sm.position.set(SEGQ.edge, 0, sCZ + off + sThk / 2);
+            sm.position.set(SEGQ.edge, 0, SEGQ.cz + off + sThk / 2);
           }
           // Drop the stringer one tread thickness so its top starts a tread below
           // the deck surface — the tread seats then align with the tread bottoms,
@@ -10297,10 +10724,10 @@ function init3D() {
           {
             const bh = 0.5, bt = 0.08, bw = sThk + 0.05, by = segTop - treadH - bh / 2;
             let bg, bx, bz;
-            if (sSide === 'back')       { bg = new THREE.BoxGeometry(bw, bh, bt); bx = sCX + off; bz = SEGQ.edge + bt / 2; }
-            else if (sSide === 'front') { bg = new THREE.BoxGeometry(bw, bh, bt); bx = sCX + off; bz = SEGQ.edge - bt / 2; }
-            else if (sSide === 'right') { bg = new THREE.BoxGeometry(bt, bh, bw); bx = SEGQ.edge + bt / 2; bz = sCZ + off; }
-            else                        { bg = new THREE.BoxGeometry(bt, bh, bw); bx = SEGQ.edge - bt / 2; bz = sCZ + off; }
+            if (SEGQ.side === 'back')       { bg = new THREE.BoxGeometry(bw, bh, bt); bx = SEGQ.cx + off; bz = SEGQ.edge + bt / 2; }
+            else if (SEGQ.side === 'front') { bg = new THREE.BoxGeometry(bw, bh, bt); bx = SEGQ.cx + off; bz = SEGQ.edge - bt / 2; }
+            else if (SEGQ.side === 'right') { bg = new THREE.BoxGeometry(bt, bh, bw); bx = SEGQ.edge + bt / 2; bz = SEGQ.cz + off; }
+            else                            { bg = new THREE.BoxGeometry(bt, bh, bw); bx = SEGQ.edge - bt / 2; bz = SEGQ.cz + off; }
             const brk = new THREE.Mesh(bg, hwMat);
             brk.position.set(bx, by, bz);
             scene.add(brk);
@@ -10311,41 +10738,79 @@ function init3D() {
 
       // Mid-flight LANDING platform — a stair-width × LANDING_TRAVEL_FT mini-deck on its
       // own 4 support posts + tube footings, inserted between the two flight segments.
-      // Matches calcMidLanding: 2×8 band + joists, 5/4 surface, 6×6 posts, 10" tubes.
+      // Matches calcMidLanding via the SHARED landingFraming() sizing (deck's OC + code
+      // tables, the landing's own spans): joists + rim caps + beams, 5/4 surface,
+      // 6×6 posts, 10" tubes.
       if (SPLITd) {
         const horiz   = sSide === 'left' || sSide === 'right';
         const dirSign = (sSide === 'front' || sSide === 'left') ? -1 : 1;
-        const frameH  = 7.25 / 12, frameT = 1.5 / 12, postWk = 5.5 / 12;
-        const d0 = upperRunD, d1 = upperRunD + LAND_D;                 // platform extent along the run
+        const LF3     = landingFraming(stairWFt * 12, LAND_D);
+        const frameH  = LF3.jDepthFt, beamH = LF3.bDepthFt, frameT = 1.5 / 12, postWk = 5.5 / 12;
+        const d0 = PLAT0, d1 = PLAT0 + LAND_D;                         // platform extent along the run (tucked under the flight by the bearing)
         const midD = (d0 + d1) / 2, midAlong = flightEdge + dirSign * midD;
         const surfY = platTopY;                                        // walking surface
-        // surface (5/4 boards as one slab in the deck material)
-        const slab = new THREE.Mesh(horiz
-          ? new THREE.BoxGeometry(LAND_D, treadH, stairWFt)
-          : new THREE.BoxGeometry(stairWFt, treadH, LAND_D), deckMat);
-        slab.position.set(horiz ? midAlong : sCX, surfY - treadH / 2, horiz ? sCZ : midAlong);
-        scene.add(slab);
-        // FRAME like the deck itself: 2×8 JOISTS spanning the travel direction @ 16" o.c.
-        // (tops tight under the decking, both edge joists included — matches the BOM's
-        // nJoist), bearing on TWO 2-ply 2×8 BEAMS that run across the stair width on the
-        // support posts (one beam at each end of travel).
+        // surface — INDIVIDUAL 5/4×6 boards with the deck's 1/8" gaps (same board
+        // parameters as the main deck surface), running across the stair width,
+        // perpendicular to the landing joists.
+        // The first LANDING_STRINGER_BEAR_FT of the platform is BARE FRAMING — the upper
+        // flight's stringer feet + kicker plate sit there; the boards start past it.
+        const bW = 5.5 / 12, bGap = (1 / 8) / 12, bPitch = bW + bGap;
+        const deckSpan = Math.max(0.5, LAND_D - LANDING_STRINGER_BEAR_FT);
+        const nB = Math.max(1, Math.floor((deckSpan + bGap) / bPitch));
+        const bStart = d0 + LANDING_STRINGER_BEAR_FT + (deckSpan - (nB * bPitch - bGap)) / 2;   // centre the courses in the decked depth
+        for (let b = 0; b < nB; b++) {
+          const along = flightEdge + dirSign * (bStart + b * bPitch + bW / 2);
+          const bd = new THREE.Mesh(horiz
+            ? new THREE.BoxGeometry(bW, treadH, stairWFt)
+            : new THREE.BoxGeometry(stairWFt, treadH, bW), deckMat);
+          bd.position.set(horiz ? along : sCX, surfY - treadH / 2, horiz ? sCZ : along);
+          scene.add(bd);
+        }
+        // FRAME like the deck itself: JOISTS spanning the travel direction at the deck's
+        // OC (tops tight under the decking, both edge joists included — matches the
+        // BOM's nJoist), their ends capped by TWO RIM JOISTS across the stair width
+        // (the flight stringers attach to the rims), all bearing on TWO BEAMS that run
+        // across the stair width on the support posts (one at each end of travel).
+        // Sizes come from landingFraming() — the same object calcMidLanding bills from.
         const joistTopY = surfY - treadH, joistY = joistTopY - frameH / 2;
-        const nJo = Math.ceil((stairWFt * 12) / LANDING_JOIST_OC_IN) + 1;
+        const nJo = LF3.nJoist;
         for (let j = 0; j < nJo; j++) {
           const a = -stairWFt / 2 + frameT / 2 + (stairWFt - frameT) * (nJo === 1 ? 0.5 : j / (nJo - 1));
           const across = (horiz ? sCZ : sCX) + a;
+          const jSpan = LAND_D - 2 * frameT;                           // rims cap the joist ends
           const jb = new THREE.Mesh(horiz
-            ? new THREE.BoxGeometry(LAND_D, frameH, frameT)
-            : new THREE.BoxGeometry(frameT, frameH, LAND_D), frameMat);
+            ? new THREE.BoxGeometry(jSpan, frameH, frameT)
+            : new THREE.BoxGeometry(frameT, frameH, jSpan), frameMat);
           jb.position.set(horiz ? midAlong : across, joistY, horiz ? across : midAlong);
           scene.add(jb);
         }
-        const beamTopY = joistTopY - frameH, beamY = beamTopY - frameH / 2, beamT = 2 * frameT;
+        // RIM joists at the two travel-direction faces — solid attachment for the
+        // upper flight's kicker bearing (near) and the lower flight's stringers (far).
+        [d0 + frameT / 2, d1 - frameT / 2].forEach(dd => {
+          const along = flightEdge + dirSign * dd;
+          const rm = new THREE.Mesh(horiz
+            ? new THREE.BoxGeometry(frameT, frameH, stairWFt)
+            : new THREE.BoxGeometry(stairWFt, frameH, frameT), frameMat);
+          rm.position.set(horiz ? along : sCX, joistY, horiz ? sCZ : along);
+          scene.add(rm);
+        });
+        // KICKER plate at the upper-stringer feet: PT 2×4 flat on the platform framing
+        // (in the board-free bearing strip); the stringers' notched seats rest on top
+        // and toe-nail to it, screwed down to the frame (billed in calcMidLanding).
+        {
+          const kickAlongP = flightEdge + dirSign * (d0 + LANDING_STRINGER_BEAR_FT - KICKER_W / 2);
+          const kickP = new THREE.Mesh(horiz
+            ? new THREE.BoxGeometry(KICKER_W, KICKER_H, stairWFt)
+            : new THREE.BoxGeometry(stairWFt, KICKER_H, KICKER_W), kickerMat);
+          kickP.position.set(horiz ? kickAlongP : sCX, (surfY - treadH) + KICKER_H / 2, horiz ? sCZ : kickAlongP);
+          scene.add(kickP);
+        }
+        const beamTopY = joistTopY - frameH, beamY = beamTopY - beamH / 2, beamT = LF3.bPlies * frameT;
         [d0 + 0.5, d1 - 0.5].forEach(dd => {
           const along = flightEdge + dirSign * dd;
           const bb = new THREE.Mesh(horiz
-            ? new THREE.BoxGeometry(beamT, frameH, stairWFt)
-            : new THREE.BoxGeometry(stairWFt, frameH, beamT), frameMat);
+            ? new THREE.BoxGeometry(beamT, beamH, stairWFt)
+            : new THREE.BoxGeometry(stairWFt, beamH, beamT), frameMat);
           bb.position.set(horiz ? along : sCX, beamY, horiz ? sCZ : along);
           scene.add(bb);
         });
@@ -10357,8 +10822,8 @@ function init3D() {
           const along  = flightEdge + dirSign * dd;
           const across = (horiz ? sCZ : sCX) + so * (stairWFt / 2 - postInB);
           // ground under the platform ≈ the flight-foot drop scaled to this position
-          const gdP  = flightDropFt * Math.min(1, dd / Math.max(0.1, steps * stepRun + LAND_D));
-          const topY = beamTopY - frameH;                              // posts stop at the BEAM underside
+          const gdP  = flightDropFt * Math.min(1, dd / Math.max(0.1, steps * stepRun + PLAT_SHIFT));
+          const topY = beamTopY - beamH;                               // posts stop at the BEAM underside
           const post = new THREE.Mesh(new THREE.BoxGeometry(postWk, Math.max(0.2, topY + gdP), postWk), frameMat);
           post.position.set(horiz ? along : across, (topY - gdP) / 2, horiz ? across : along);
           scene.add(post);
@@ -10372,10 +10837,13 @@ function init3D() {
       // concrete footing the FULL stair width, centered under the stringer ends so
       // each stringer lands on it (Fairfax Fig 40).
       {
-        const totalRun = steps * stepRun + LAND_D;   // ground foot sits PAST the landing on a split flight
-        const horiz    = sSide === 'left' || sSide === 'right';
-        const dirSign  = (sSide === 'front' || sSide === 'left') ? -1 : 1;
-        const edge     = flightEdge;
+        // TURNED landing: the ground foot belongs to the LOWER flight in frame2.
+        const fSide    = T2 ? T2.side2 : sSide;
+        const totalRun = T2 ? LOWERn * stepRun : steps * stepRun + PLAT_SHIFT;   // ground foot sits PAST the landing on a straight split
+        const horiz    = fSide === 'left' || fSide === 'right';
+        const dirSign  = (fSide === 'front' || fSide === 'left') ? -1 : 1;
+        const edge     = T2 ? T2.edge2 : flightEdge;
+        const acrossC  = T2 ? T2.centre2 : (horiz ? sCZ : sCX);
         const padW    = stairWFt;                                         // footing width = stair width
         const bearRun = STRINGER_FOOT_RUN_IN / 12, footDeep = STRINGER_FOOT_DEEP_IN / 12;
         // Center the footing a half-run back from the bottom riser so its FRONT face is
@@ -10389,8 +10857,8 @@ function init3D() {
         const crossTilt = Math.atan2(dEndR - dEndL, stairWFt);
         const foot = new THREE.Mesh(new THREE.BoxGeometry(
           horiz ? bearRun : padW, footDeep, horiz ? padW : bearRun), concreteMat);
-        if (horiz) { foot.position.set(footAlong, -footDeep / 2 + 0.006 - avgDrop, sCZ); foot.rotation.x =  crossTilt; }
-        else       { foot.position.set(sCX, -footDeep / 2 + 0.006 - avgDrop, footAlong); foot.rotation.z = -crossTilt; }
+        if (horiz) { foot.position.set(footAlong, -footDeep / 2 + 0.006 - avgDrop, acrossC); foot.rotation.x =  crossTilt; }
+        else       { foot.position.set(acrossC, -footDeep / 2 + 0.006 - avgDrop, footAlong); foot.rotation.z = -crossTilt; }
         scene.add(foot);
 
         // KICKER plate (PT 2×4 flat on the footing, FULL stair width) at the FRONT of the bearing,
@@ -10401,8 +10869,8 @@ function init3D() {
         const kickTop = 0.006 - avgDrop + KICKER_H, kickY = 0.006 - avgDrop + KICKER_H / 2;
         const kick = new THREE.Mesh(new THREE.BoxGeometry(
           horiz ? KICKER_W : padW, KICKER_H, horiz ? padW : KICKER_W), kickerMat);
-        if (horiz) { kick.position.set(kickAlong, kickY, sCZ); kick.rotation.x =  crossTilt; }
-        else       { kick.position.set(sCX, kickY, kickAlong); kick.rotation.z = -crossTilt; }
+        if (horiz) { kick.position.set(kickAlong, kickY, acrossC); kick.rotation.x =  crossTilt; }
+        else       { kick.position.set(acrossC, kickY, kickAlong); kick.rotation.z = -crossTilt; }
         scene.add(kick);
         const nKS = Math.max(2, Math.ceil((stairWFt * 12) / 16));   // concrete screws @ 16" o.c. (== kickerScrewCount)
         const ksLen = 2.75 / 12, ksR = 0.13 / 12;
@@ -10411,8 +10879,8 @@ function init3D() {
           const shaft = new THREE.Mesh(new THREE.CylinderGeometry(ksR, ksR, ksLen, 8), hwMat);
           const head  = new THREE.Mesh(new THREE.CylinderGeometry(ksR * 1.9, ksR * 1.9, 0.02, 6), hwMat);
           const sy = kickTop - ksLen / 2;                           // shaft runs from the kicker top down into the footing
-          if (horiz) { shaft.position.set(kickAlong, sy, sCZ + a); head.position.set(kickAlong, kickTop + 0.01, sCZ + a); }
-          else       { shaft.position.set(sCX + a, sy, kickAlong);  head.position.set(sCX + a, kickTop + 0.01, kickAlong); }
+          if (horiz) { shaft.position.set(kickAlong, sy, acrossC + a); head.position.set(kickAlong, kickTop + 0.01, acrossC + a); }
+          else       { shaft.position.set(acrossC + a, sy, kickAlong);  head.position.set(acrossC + a, kickTop + 0.01, kickAlong); }
           scene.add(shaft); scene.add(head);
         }
       }
@@ -10460,10 +10928,43 @@ function init3D() {
       // the product ships in one section, an intermediate newel splits it into equal
       // sections (each ≤ the product's max stock length).
       if (heightIn >= 30) {
-        const totalRun  = steps * stepRun + LAND_D;                 // guard also crosses the landing plateau
+        const totalRun  = steps * stepRun + PLAT_SHIFT;             // guard also crosses the landing plateau
         const rakeSlope = effRiseFt / (steps * stepRun);            // stringer pitch (rise / run — landing excluded)
         // SINGLE SOURCE shared with the cost/BOM (calcStairGuard) → identical newels/sections.
-        const GL        = stairGuardLayout(effRiseFt, totalRun, stepRun, railType3d);
+        // SPLIT flight: compose the layout from TWO per-flight stairGuardLayout calls so the
+        // newels snap to REAL tread centres of each flight (the extended-run layout snapped
+        // them to phantom "treads" ON the landing plateau — posts floated at odd spots). The
+        // plateau becomes one clean section between the flights' end newels.
+        const GL = !SPLITd ? stairGuardLayout(effRiseFt, totalRun, stepRun, railType3d)
+          : (() => {
+              // Newels stand ON THE LANDING at both platform corners, so the rails LAND on
+              // the platform: deck→corner (pure rake, ONE section — splitFlightSteps RAISED
+              // the landing until it fits the material), corner→corner (pure level), then
+              // corner→down. Mid newels appear only where a span still exceeds the product
+              // (e.g. the stringer-stock clamp beat the rail), snapped to tread centres.
+              const maxSec  = (railType3d.sectionFt && railType3d.sectionFt.length) ? Math.max(...railType3d.sectionFt) : 6;
+              const pitchCos = stepRun / Math.hypot(stepRun, stepRise);
+              const knee1 = upperRunD, knee2 = upperRunD + PLAT_SHIFT;   // plateau = the WALKING boards (bearing strip is under the flight)
+              const dTop  = 0.5 * stepRun + TREAD_SEAM_OFF;                 // first tread-board seam
+              const dBot  = knee2 + (LOWERn - 0.5) * stepRun + TREAD_SEAM_OFF;   // last tread-board seam
+              const postDs = [dTop];
+              const upSecs = Math.max(1, Math.ceil(((knee1 - dTop) / pitchCos) / maxSec - 1e-9));
+              for (let i = 1; i < upSecs; i++)
+                postDs.push((Math.round((dTop + (knee1 - dTop) * i / upSecs) / stepRun - 0.5) + 0.5) * stepRun + TREAD_SEAM_OFF);
+              postDs.push(knee1, knee2);                                    // posts ON the landing corners
+              if (!T2) {                                                    // straight: continue down the lower flight
+                const loSecs = Math.max(1, Math.ceil(((dBot - knee2) / pitchCos) / maxSec - 1e-9));
+                for (let i = 1; i < loSecs; i++) {
+                  const raw = knee2 + (dBot - knee2) * i / loSecs;
+                  postDs.push(knee2 + (Math.round((raw - knee2) / stepRun - 0.5) + 0.5) * stepRun + TREAD_SEAM_OFF);
+                }
+                postDs.push(dBot);
+              }                                                             // turned: the lower flight gets its own frame2 guard below
+              const uniq = [...new Set(postDs.map(d => +d.toFixed(3)))].sort((a, b) => a - b);
+              const ang  = Math.atan2(stepRise, stepRun);                   // == the flight pitch
+              return { ang, cosAng: Math.cos(ang), dTop: uniq[0], dBot: uniq[uniq.length - 1],
+                       spanRunFt: uniq[uniq.length - 1] - uniq[0], nSec: uniq.length - 1, postDs: uniq };
+            })();
         const ang       = GL.ang;                                   // === stringer angle
         const cosAng    = GL.cosAng;
         const horiz     = sSide === 'left' || sSide === 'right';
@@ -10486,9 +10987,9 @@ function init3D() {
         // On a split flight the line goes PIECEWISE: upper rake → LEVEL across the landing
         // plateau (at the platform surface) → lower rake, so the guard follows the real stairs.
         const rakeY     = d => !SPLITd ? heightFt - rakeSlope * d
-          : d <= upperRunD          ? heightFt - rakeSlope * d
-          : d <= upperRunD + LAND_D ? heightFt - rakeSlope * upperRunD
-          :                           heightFt - rakeSlope * (d - LAND_D);
+          : d <= upperRunD              ? heightFt - rakeSlope * d
+          : d <= upperRunD + PLAT_SHIFT ? heightFt - rakeSlope * upperRunD
+          :                               heightFt - rakeSlope * (d - PLAT_SHIFT);
         // Max single span the chosen product ships (ft): longest stock section, else ~6' for
         // continuous systems (cable) where tension dictates ~6' post spacing.
         // Newels at the CENTRE of the first & last step + mid newels per the SHARED layout
@@ -10505,22 +11006,39 @@ function init3D() {
           const a = so * (stairWFt / 2 - RAIL_CENTER_INSET_FT);    // same inset off the edge as the deck posts
           const acrossPos = horiz ? (sCZ + a) : (sCX + a);
           // place a raked element (box or oriented cylinder) centred between runs [d0,d1] at height hAbove the rake.
-          // The angle comes from the rake line ACROSS THIS SPAN (not the global stair pitch), so a
-          // section crossing a landing plateau renders LEVEL and part-plateau sections tilt correctly.
+          // A span is SPLIT at the landing knees (rake→level→rake), so every drawn piece is either
+          // purely raked or purely level — no chord cutting across a corner. Each piece's angle
+          // comes from the rake line across ITS OWN extent.
           const rake = (d0, d1, hAbove, makeGeo, mat) => {
-            const dm = (d0 + d1) / 2;
-            const dy = rakeY(d0) - rakeY(d1);                        // drop across this span (0 on the plateau)
-            const segAng   = Math.atan2(dy, Math.max(0.01, d1 - d0));
-            const slopeLen = Math.hypot(d1 - d0, dy);
-            const along = edge + dirSign * dm, y = (rakeY(d0) + rakeY(d1)) / 2 + hAbove;
-            const m = new THREE.Mesh(makeGeo(slopeLen), mat);
-            if (horiz) { m.position.set(along, y, acrossPos); m.rotation.z = -dirSign * segAng; }
-            else       { m.position.set(acrossPos, y, along);  m.rotation.x =  dirSign * segAng; }
-            scene.add(m);
+            const cuts = SPLITd ? [upperRunD, upperRunD + PLAT_SHIFT].filter(c => c > d0 + 0.02 && c < d1 - 0.02) : [];
+            const bnds = [d0, ...cuts, d1];
+            for (let b = 0; b + 1 < bnds.length; b++) {
+              const a0 = bnds[b], a1 = bnds[b + 1];
+              const dy = rakeY(a0) - rakeY(a1);                      // drop across this piece (0 on the plateau)
+              const segAng   = Math.atan2(dy, Math.max(0.01, a1 - a0));
+              const slopeLen = Math.hypot(a1 - a0, dy);
+              const dm = (a0 + a1) / 2;
+              // LEVEL pieces on the landing plateau use the MAIN DECK's guard reference
+              // (36" above the walking surface), not the raked nosing-lifted height.
+              // Tolerances are LOOSE (0.01 ft) — postDs round through toFixed(3), which can
+              // nudge a knee a third of a millimetre past the piecewise-rake branch boundary
+              // and make a "level" plateau piece carry dy ≈ 2e-4 (bit us once).
+              const onPlat = SPLITd && Math.abs(dy) < 0.01 && a0 >= upperRunD - 0.05 && a1 <= upperRunD + PLAT_SHIFT + 0.05;
+              const along = edge + dirSign * dm, y = (rakeY(a0) + rakeY(a1)) / 2 + hAbove - (onPlat ? nosingH : 0);
+              const m = new THREE.Mesh(makeGeo(slopeLen), mat);
+              if (horiz) { m.position.set(along, y, acrossPos); m.rotation.z = -dirSign * segAng; }
+              else       { m.position.set(acrossPos, y, along);  m.rotation.x =  dirSign * segAng; }
+              scene.add(m);
+            }
           };
           const railBox = L => horiz ? new THREE.BoxGeometry(L, rT, rT) : new THREE.BoxGeometry(rT, rT, L);
+          // On a TURNED landing the exit-side plateau section stays OPEN — the lower
+          // flight leaves through that face.
+          const openSec = (d0, d1) => T2 && so === T2.exitSo
+            && d0 >= upperRunD - 0.02 && d1 <= upperRunD + PLAT_SHIFT + 0.02 && d1 - d0 > 1;
           // top rail (handrail) + base rail, one per section so a mid newel butts them.
           for (let i = 0; i < nSec; i++) {
+            if (openSec(postDs[i], postDs[i + 1])) continue;
             rake(postDs[i], postDs[i + 1], topH, railBox, railMat);
             rake(postDs[i], postDs[i + 1], botH, railBox, railMat);
           }
@@ -10529,13 +11047,15 @@ function init3D() {
             const rC = 0.012;
             const cabGeo = L => { const g = new THREE.CylinderGeometry(rC, rC, L, 8); if (horiz) g.rotateZ(Math.PI / 2); else g.rotateX(Math.PI / 2); return g; };
             for (let h = botH + 3 / 12; h < topH - 0.02; h += 3 / 12)
-              for (let i = 0; i < nSec; i++) rake(postDs[i], postDs[i + 1], h, cabGeo, balMat);
+              for (let i = 0; i < nSec; i++) { if (openSec(postDs[i], postDs[i + 1])) continue; rake(postDs[i], postDs[i + 1], h, cabGeo, balMat); }
           } else {
             const balW = 0.06, nBal = Math.max(1, Math.round(spanRunFt / (4 / 12)));
             for (let i = 0; i <= nBal; i++) {
               const d = dTop + spanRunFt * (i / nBal), along = edge + dirSign * d;
+              const onPlat = SPLITd && d > upperRunD + 0.01 && d < upperRunD + PLAT_SHIFT - 0.01;
+              if (T2 && so === T2.exitSo && onPlat) continue;               // exit side is open on a turned landing
               const bm = new THREE.Mesh(new THREE.BoxGeometry(balW, balH, balW), balMat);
-              bm.position.set(horiz ? along : acrossPos, rakeY(d) + balCenterH, horiz ? acrossPos : along);
+              bm.position.set(horiz ? along : acrossPos, rakeY(d) + balCenterH - (onPlat ? nosingH : 0), horiz ? acrossPos : along);
               scene.add(bm);
             }
           }
@@ -10566,7 +11086,7 @@ function init3D() {
             postDs.forEach(d => {
               // Step (from the deck) this newel stands on — on a split flight, distances past
               // the landing plateau shed the platform depth; ON the plateau they clamp to it.
-              const dd = SPLITd && d > upperRunD ? Math.max(upperRunD, d - LAND_D) : d;
+              const dd = SPLITd && d > upperRunD ? Math.max(upperRunD, d - PLAT_SHIFT) : d;
               const k = Math.floor(dd / stepRun + 1e-6);
               const treadUnderY = (heightFt - k * stepRise) - treadH;              // underside of that LEVEL tread
               const along = edge + dirSign * d, acrossB = (horiz ? sCZ : sCX) + blkAcross;
@@ -10578,6 +11098,76 @@ function init3D() {
             });
           }
         });
+
+        // TURNED landing: (a) the FAR RIM gets a level guard at MAIN-DECK height (the
+        // straight-through exit is now a wall), and (b) the lower flight carries its own
+        // guard in frame2 — newels on the platform corner + tread centres, raked rails.
+        if (T2) {
+          const aMax  = stairWFt / 2 - RAIL_CENTER_INSET_FT;
+          const kneeD = upperRunD + PLAT_SHIFT;
+          const acrossC1 = horiz ? sCZ : sCX;
+          // (a) far rim — across the run axis, deck-referenced heights
+          const rimAlong = edge + dirSign * (kneeD - RAIL_CENTER_INSET_FT);
+          const rbA = L => horiz ? new THREE.BoxGeometry(rT, rT, L) : new THREE.BoxGeometry(L, rT, rT);
+          [topH, botH].forEach(h => {
+            const m = new THREE.Mesh(rbA(2 * aMax), railMat);
+            m.position.set(horiz ? rimAlong : acrossC1, platTopY + h - nosingH, horiz ? acrossC1 : rimAlong);
+            scene.add(m);
+          });
+          const nBr = Math.max(1, Math.round((2 * aMax) / (4 / 12)));
+          for (let i = 0; i <= nBr; i++) {
+            const a = -aMax + 2 * aMax * i / nBr;
+            const bm = new THREE.Mesh(new THREE.BoxGeometry(0.06, balH, 0.06), balMat);
+            bm.position.set(horiz ? rimAlong : acrossC1 + a, platTopY + balCenterH - nosingH, horiz ? acrossC1 + a : rimAlong);
+            scene.add(bm);
+          }
+          // (b) lower flight guard in frame2
+          const slope2 = stepRise / stepRun, rake2Y = u => platTopY - slope2 * u;
+          const maxSec2 = (railType3d.sectionFt && railType3d.sectionFt.length) ? Math.max(...railType3d.sectionFt) : 6;
+          const cos2 = stepRun / Math.hypot(stepRun, stepRise);
+          const uBot = (LOWERn - 0.5) * stepRun + TREAD_SEAM_OFF;
+          const post2 = [0];
+          const sec2 = Math.max(1, Math.ceil((uBot / cos2) / maxSec2 - 1e-9));
+          for (let i = 1; i < sec2; i++) post2.push((Math.round((uBot * i / sec2) / stepRun - 0.5) + 0.5) * stepRun + TREAD_SEAM_OFF);
+          post2.push(uBot);
+          const h2 = T2.horiz2, s2 = T2.sign2, e2 = T2.edge2, c2 = T2.centre2;
+          [-1, 1].forEach(so2 => {
+            const across2 = c2 + so2 * aMax;
+            const put = (u0, u1, hAbove, geoFn, mat) => {
+              const dy = rake2Y(u0) - rake2Y(u1);
+              const angp = Math.atan2(dy, Math.max(0.01, u1 - u0));
+              const len = Math.hypot(u1 - u0, dy);
+              const um = (u0 + u1) / 2, along = e2 + s2 * um, y = (rake2Y(u0) + rake2Y(u1)) / 2 + hAbove;
+              const m = new THREE.Mesh(geoFn(len), mat);
+              if (h2) { m.position.set(along, y, across2); m.rotation.z = -s2 * angp; }
+              else    { m.position.set(across2, y, along);  m.rotation.x =  s2 * angp; }
+              scene.add(m);
+            };
+            const rb2 = L => h2 ? new THREE.BoxGeometry(L, rT, rT) : new THREE.BoxGeometry(rT, rT, L);
+            for (let i = 0; i + 1 < post2.length; i++) { put(post2[i], post2[i + 1], topH, rb2, railMat); put(post2[i], post2[i + 1], botH, rb2, railMat); }
+            if (railIsCable) {
+              const rC = 0.012;
+              const cg2 = L => { const g = new THREE.CylinderGeometry(rC, rC, L, 8); if (h2) g.rotateZ(Math.PI / 2); else g.rotateX(Math.PI / 2); return g; };
+              for (let h = botH + 3 / 12; h < topH - 0.02; h += 3 / 12)
+                for (let i = 0; i + 1 < post2.length; i++) put(post2[i], post2[i + 1], h, cg2, balMat);
+            } else {
+              const nB2 = Math.max(1, Math.round(uBot / (4 / 12)));
+              for (let i = 0; i <= nB2; i++) {
+                const u = uBot * i / nB2, along = e2 + s2 * u;
+                const bm = new THREE.Mesh(new THREE.BoxGeometry(0.06, balH, 0.06), balMat);
+                bm.position.set(h2 ? along : across2, rake2Y(u) + balCenterH, h2 ? across2 : along);
+                scene.add(bm);
+              }
+            }
+            const pH2 = topH + rT / 2;
+            post2.forEach(u => {
+              const along = e2 + s2 * u;
+              const gp = new THREE.Mesh(new THREE.BoxGeometry(postW, pH2, postW), railMat);
+              gp.position.set(h2 ? along : across2, rake2Y(u) + pH2 / 2, h2 ? across2 : along);
+              scene.add(gp);
+            });
+          });
+        }
       }
     }
   }
