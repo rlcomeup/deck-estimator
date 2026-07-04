@@ -5413,6 +5413,8 @@ const MAX_FLIGHT_RISE_IN      = 151;  // IRC R311.7.3 max rise between landings
 const LANDING_TRAVEL_FT       = 4;    // platform depth in the direction of travel (≥ 36" code min)
 const LANDING_JOIST_OC_IN     = 16;   // platform framed in 2×8 PT @ 16" o.c.
 const LANDING_TUBE_DIA_IN     = 10;   // post footings: 10" form tubes
+const LANDING_STRINGER_BEAR_FT = 1;   // upper-flight stringer feet bear THIS far onto the platform
+                                      // (bare framing — no deck boards there — with a 2×4 kicker plate)
 function stairNeedsLanding(riseIn, stepRiseIn, stepRunIn) {
   const steps  = Math.max(1, Math.ceil(riseIn / stepRiseIn));
   const runFt  = steps * stepRunIn / 12, riseFt = riseIn / 12;
@@ -5474,9 +5476,17 @@ function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPr
   const tubeSticks = 4 * Math.max(1, Math.ceil(fDepthFt / TUBE_LEN_FT));
   const tubeCost   = +(tubeSticks * (TUBE_PRICE_EA[LANDING_TUBE_DIA_IN] ?? 17.99)).toFixed(2);
   const baseCost   = +(4 * HW.postBase).toFixed(2);                 // post bases (hardware)
-  // Decking: wFt × dFt of the SAME 5/4 boards, by the linear foot.
-  const deckLf   = Math.ceil(wFt * dFt / (5.5 / 12));
+  // Decking: the SAME 5/4 boards, by the linear foot — MINUS the stringer-bearing
+  // strip at the stair-entry edge (the upper flight's feet + kicker sit on bare
+  // framing there; boards would be in the way).
+  const deckDepth = Math.max(0.5, dFt - LANDING_STRINGER_BEAR_FT);
+  const deckLf   = Math.ceil(wFt * deckDepth / (5.5 / 12));
   const deckCost = +(deckLf * deckPriceLf).toFixed(2);
+  // Kicker plate ON the platform: a PT 2×4 the upper stringers' notched seats rest on
+  // and toe-nail to, screwed down to the platform framing (3" structural screws —
+  // pooled with the blocking-screw pack by the caller).
+  const kickerBuy    = optimizePosts(1, wFt, RAILING_RAIL_PRICE, 0, STOCK_LENGTHS);
+  const kickerScrews = kickerScrewCount(wFt);
   // Guard on the open sides: straight-through → both SIDE faces (stairs enter/exit the
   // rims); turned → the far rim + the non-exit side (the stairs exit one side face).
   const guarded   = platformTopFt * 12 >= 30;
@@ -5484,12 +5494,13 @@ function calcMidLanding(widthIn, platformTopFt, deckPriceLf, footDepthIn, railPr
   const guardCost = guarded ? +(guardLf * (railPriceLf || 0)).toFixed(2) : 0;
   const newelBuy  = guarded ? optimizePosts(4, STAIR_NEWEL_FT, RAILING_POST_LF_PRICE, 0, STOCK_LENGTHS)
                             : { boards: 0, lines: [], cost: 0 };
-  const lumberCost = +(beamBuy.cost + joistBuy.cost + postBuy.cost + newelBuy.cost + guardCost).toFixed(2);
+  const lumberCost = +(beamBuy.cost + joistBuy.cost + postBuy.cost + newelBuy.cost + guardCost + kickerBuy.cost).toFixed(2);
   const laborHours = +(4 * (digAuger ? 0.5 : 2.5)   // dig 4 footings
                      + 4 * 0.4                      // set + plumb posts
                      + 2.5                          // frame + deck the platform
                      + (guarded ? 1.0 : 0)).toFixed(1);
   return { wFt, dFt, nJoist, beamBuy, joistBuy, postLen: +postLen.toFixed(1), postBuy,
+           kickerBuy, kickerScrews,
            concreteCf, tubeSticks, tubeCost, baseCost, deckLf, deckCost,
            guarded, guardLf, guardCost, newelBuy, lumberCost, laborHours };
 }
@@ -6489,6 +6500,8 @@ function render() {
     joistBuy:    mergeBuys(MIDLs.map(m => m.joistBuy)),
     postBuy:     mergeBuys(MIDLs.map(m => m.postBuy)),
     newelBuy:    mergeBuys(MIDLs.map(m => m.newelBuy)),
+    kickerBuy:   mergeBuys(MIDLs.map(m => m.kickerBuy)),
+    kickerScrews: MIDLs.reduce((s, m) => s + m.kickerScrews, 0),
     laborHours: +MIDLs.reduce((s, m) => s + m.laborHours, 0).toFixed(1),
   } : null;
   const ST = STs.length ? {
@@ -6648,7 +6661,7 @@ function render() {
   _hwAdd('nut',          hwPacks('hw.nut'),              H.throughBolts,         H.boltSpec ? H.boltSpec.nutEa : pb('hw.nut'));
   _hwAdd('washer',       hwPacks('hw.washer'),           H.throughBolts * 2,     H.boltSpec ? H.boltSpec.washerEa : pb('hw.washer'));
   _hwAdd('stringerConn', hwPacks('stair.stringerConn'),  ST ? ST.connectors : 0, STRINGER_CONNECTOR_EA);
-  _hwAdd('blockScrew',   hwPacks('hw.blockScrew'),       (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0), BLOCK_SCREW_EA);
+  _hwAdd('blockScrew',   hwPacks('hw.blockScrew'),       (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0) + (MIDL ? MIDL.kickerScrews : 0), BLOCK_SCREW_EA);
   _hwAdd('kicker',       hwPacks('stair.kickerScrew'),   LAND ? LAND.kickerScrews : 0, KICKER_SCREW_EA);
   const hwPackPremium = +Object.keys(HWPACK).reduce((s, k) => s + (HWPACK[k].cost - _hwEach[k]), 0).toFixed(2);
 
@@ -6684,6 +6697,7 @@ function render() {
   const matHardware = DF.cost + H.cost + BPF.cost + (HR ? HR.materialCost * stairFlights : 0)
                     + (BLOCKING ? BLOCKING.screwCost : 0)           // deck-blocking screws (loose base)
                     + stairBlockScrews * BLOCK_SCREW_EA             // stair-newel-block screws loose base (pack round-up is in hwPackPremium)
+                    + (MIDL ? MIDL.kickerScrews * BLOCK_SCREW_EA : 0)   // landing kicker-plate screws loose base
                     + (H ? H.rimScrews * BLOCK_SCREW_EA : 0)        // rim-to-joist end screws loose base
                     + (LAND ? LAND.kickerScrewCost : 0)             // concrete screws anchoring the kicker plates
                     + (MIDL ? MIDL.baseCost : 0)                    // landing support-post bases
@@ -6847,8 +6861,8 @@ function render() {
   if (HWPACK.nails) addBom('Collated 3&Prime; framing nails — combined purchase (joist laps + beam plies)', _nails, 'nails', HW.collatedNail3in, HWPACK.nails);
   // Breaker blocking: added PT #2 (past cut-offs) + the screws fastening it to joists
   if (BLOCKING && BLOCKING.addedBoards) addBom(`Breaker blocking (${BLOCKING.sizeLabel} PT #2) — ${BLOCKING.stock}&prime;`, BLOCKING.addedBoards, 'pcs', BLOCKING.stock * (FRAMING_PRICE_LF[joistSize] ?? FRAMING_PER_LF));
-  const _allBlockScrews = (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0);
-  if (_allBlockScrews) addBom(`3&Prime; structural screws (${[(BLOCKING && BLOCKING.screwCount) ? 'breaker/railing-post blocking' : '', stairBlockScrews ? 'stair newels' : '', (H && H.rimScrews) ? `rim-to-joist ${RIM_SCREWS_PER_JOIST_END}/end` : ''].filter(Boolean).join(' + ')})`, _allBlockScrews, 'pcs', BLOCK_SCREW_EA, HWPACK.blockScrew);
+  const _allBlockScrews = (BLOCKING ? BLOCKING.screwCount : 0) + stairBlockScrews + (H ? H.rimScrews : 0) + (MIDL ? MIDL.kickerScrews : 0);
+  if (_allBlockScrews) addBom(`3&Prime; structural screws (${[(BLOCKING && BLOCKING.screwCount) ? 'breaker/railing-post blocking' : '', stairBlockScrews ? 'stair newels' : '', (H && H.rimScrews) ? `rim-to-joist ${RIM_SCREWS_PER_JOIST_END}/end` : '', (MIDL && MIDL.kickerScrews) ? 'landing kickers' : ''].filter(Boolean).join(' + ')})`, _allBlockScrews, 'pcs', BLOCK_SCREW_EA, HWPACK.blockScrew);
   if (stairBlockFromCut) addBom(`Stair newel blocking (${stairBlockNom.replace('x','×')} PT, ${stairBlockBayFt.toFixed(1)}′ ea) — cut from framing off-cuts`, stairBlockFromCut, 'pcs', 0);
   if (stairBlockBuyN > 0) stairBlockBuy.lines.forEach(l => addBom(`Stair newel blocking (${stairBlockNom.replace('x','×')} PT, ${stairBlockBayFt.toFixed(1)}′ ea${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}) — ${l.stock}′ stock`, l.count, 'pcs', l.stock * FRAMING_PRICE_LF[stairBlockNom]));
   // Railing — decomposed to match the calculated material cost (rails+infill per
@@ -6897,6 +6911,8 @@ function render() {
       addBom(`Stair landing — support posts (6×6 PT × ~${MIDL.postLen}′) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard} cut/board` : ''}`, l.count, 'pcs', l.stock * POST_PER_LF));
     addBom(`Stair landing — form tubes (${LANDING_TUBE_DIA_IN}&Prime; × 48&Prime;)`, MIDL.tubeSticks, 'pcs', TUBE_PRICE_EA[LANDING_TUBE_DIA_IN] ?? 17.99);
     addBom('Stair landing — post bases (ABA66Z)', MIDL.posts, 'pcs', HW.postBase);
+    MIDL.kickerBuy.lines.forEach(l =>
+      addBom(`Stair landing — kicker plate (2×4 PT, upper stringers bear &amp; toe-nail) — ${l.stock}′ stock${l.perBoard > 1 ? `, ${l.perBoard}/board` : ''}`, l.count, 'pcs', l.stock * RAILING_RAIL_PRICE));
     if (MIDL.guarded) {
       addBom(`Stair landing — guard rail, open sides (${railType.label})`, MIDL.guardLf, 'lf', railType.railLf);
       MIDL.newelBuy.lines.forEach(l =>
@@ -7276,7 +7292,7 @@ function render() {
     ` : ''}
     ${MIDL ? `
     <div style="margin-top:4px;font-size:11px;color:#f97316">Mid-flight landing required — a single flight would exceed ${MAX_FLIGHT_RISE_IN}&Prime; rise (IRC R311.7.3) or the longest 2×12 stringer stock; each tall flight is split with a framed landing platform</div>
-    ${subline(`Landing platform${MIDL.count > 1 ? `s ×${MIDL.count}` : ''} (stair-width × ${MIDL.dFt}′${MIDL.turn !== 'straight' ? ` · stairs turn ${MIDL.turn}` : ''} — 2 × 2-ply 2×8 beams on the posts + 2×8 joists @ ${LANDING_JOIST_OC_IN}&Prime; o.c. + ${ST.treadLabel} surface)`, `${MIDL.beamBuy.lines.concat(MIDL.joistBuy.lines).map(l => `${l.count}×${l.stock}′`).join(' + ')} + ${MIDL.deckLf} lf decking`)}
+    ${subline(`Landing platform${MIDL.count > 1 ? `s ×${MIDL.count}` : ''} (stair-width × ${MIDL.dFt}′${MIDL.turn !== 'straight' ? ` · stairs turn ${MIDL.turn}` : ''} — 2 × 2-ply 2×8 beams on the posts + 2×8 joists @ ${LANDING_JOIST_OC_IN}&Prime; o.c. + ${ST.treadLabel} surface · 2×4 kicker at the upper-stringer feet, boards omitted there)`, `${MIDL.beamBuy.lines.concat(MIDL.joistBuy.lines).map(l => `${l.count}×${l.stock}′`).join(' + ')} + ${MIDL.deckLf} lf decking`)}
     ${subline(`Landing support posts (${MIDL.posts} × 6×6 PT, ~${MIDL.postLen}′ — on ${LANDING_TUBE_DIA_IN}&Prime; tube footings)`, `${MIDL.postBuy.lines.map(l => `${l.count}×${l.stock}′`).join(' + ')} stock · ${MIDL.concreteCf} cf pooled above`)}
     ${MIDL.guarded ? subline(`Landing guard (2 open sides, ${railType.label})`, `${MIDL.guardLf} lf + ${MIDL.posts} newels`) : ''}
     ${line('Landing platform material', usd(MIDL.lumberCost + MIDL.deckCost + MIDL.tubeCost + MIDL.baseCost), 'cost')}
@@ -10318,7 +10334,18 @@ function init3D() {
           fullOutline.push([(s + 1) * stepRun, segTop -  s      * stepRise]);   // tread cut
           fullOutline.push([(s + 1) * stepRun, segTop - (s + 1) * stepRise]);   // riser cut
         }
-        fullOutline.push([totalRun3, undersideY(totalRun3)]);         // plumb foot down to the throat
+        if (SPLITd && !SEGQ.ground) {
+          // Upper flight of a SPLIT: the HEEL bears LANDING_STRINGER_BEAR_FT onto the
+          // platform framing (deck boards omitted there). The last riser cut stops at
+          // the KICKER TOP, the heel runs level from there, then drops past the seat —
+          // the clip + notch then seat it notched OVER the landing kicker, like at grade.
+          fullOutline.pop();                                                                       // drop the full-depth last riser cut
+          fullOutline.push([totalRun3, segTop - segRise + KICKER_H]);                              // riser cut stops at the kicker top
+          fullOutline.push([totalRun3 + LANDING_STRINGER_BEAR_FT, segTop - segRise + KICKER_H]);   // heel top
+          fullOutline.push([totalRun3 + LANDING_STRINGER_BEAR_FT, segTop - segRise - 0.1]);        // plumb heel end (below the seat; clip trims)
+        } else {
+          fullOutline.push([totalRun3, undersideY(totalRun3)]);       // plumb foot down to the throat
+        }
         fullOutline.push([0, yBL]);                                   // throat back to the top-side bottom
         // Sutherland–Hodgman clip of the (simple) outline to the half-plane y ≥ yCut: keeps the
         // board ABOVE the footing top, inserting a clean horizontal seat where edges cross. The
@@ -10362,13 +10389,15 @@ function init3D() {
           // while each stringer seats on the real grade. (Dropped −treadH via sm.position.y, so
           // local y=treadH maps to world grade 0; the footing top sits a hair above, +0.006.)
           const gdK          = stairFootDropFtAt(sCX, sCZ, sSide, heightIn, riseIn3d, runIn3d, off);
-          // Ground segment: bear on the footing (clip at ITS ground, kicker notch). Upper
-          // segment of a split flight: bear ON the landing platform surface — no kicker.
+          // Ground segment: bear on the footing (clip at ITS ground). Upper segment of a
+          // split flight: bear on the landing platform FRAMING (the deck boards are
+          // omitted over the bearing strip) — frame top = surface − treadH, so in the
+          // mesh's local frame (offset −treadH) the seat sits at platTopY.
           const footTopLocal = SEGQ.ground ? treadH + 0.006 - gdK
-                                           : platTopY + treadH + 0.006;
+                                           : platTopY + 0.006;
           const poly = clipToGround(fullOutline, footTopLocal);
           if (poly.length < 3) continue;                              // board entirely below its bearing → nothing to draw
-          if (SEGQ.ground) notchEnd(poly, footTopLocal);              // kicker notch only at the ground foot
+          notchEnd(poly, footTopLocal);                               // kicker notch at BOTH feet (ground + landing kicker)
           const shape = new THREE.Shape();
           shape.moveTo(poly[0][0], poly[0][1]);
           for (let i = 1; i < poly.length; i++) shape.lineTo(poly[i][0], poly[i][1]);
@@ -10428,9 +10457,12 @@ function init3D() {
         // surface — INDIVIDUAL 5/4×6 boards with the deck's 1/8" gaps (same board
         // parameters as the main deck surface), running across the stair width,
         // perpendicular to the landing joists.
+        // The first LANDING_STRINGER_BEAR_FT of the platform is BARE FRAMING — the upper
+        // flight's stringer feet + kicker plate sit there; the boards start past it.
         const bW = 5.5 / 12, bGap = (1 / 8) / 12, bPitch = bW + bGap;
-        const nB = Math.max(1, Math.floor((LAND_D + bGap) / bPitch));
-        const bStart = d0 + (LAND_D - (nB * bPitch - bGap)) / 2;   // centre the courses in the travel depth
+        const deckSpan = Math.max(0.5, LAND_D - LANDING_STRINGER_BEAR_FT);
+        const nB = Math.max(1, Math.floor((deckSpan + bGap) / bPitch));
+        const bStart = d0 + LANDING_STRINGER_BEAR_FT + (deckSpan - (nB * bPitch - bGap)) / 2;   // centre the courses in the decked depth
         for (let b = 0; b < nB; b++) {
           const along = flightEdge + dirSign * (bStart + b * bPitch + bW / 2);
           const bd = new THREE.Mesh(horiz
@@ -10453,6 +10485,17 @@ function init3D() {
             : new THREE.BoxGeometry(frameT, frameH, LAND_D), frameMat);
           jb.position.set(horiz ? midAlong : across, joistY, horiz ? across : midAlong);
           scene.add(jb);
+        }
+        // KICKER plate at the upper-stringer feet: PT 2×4 flat on the platform framing
+        // (in the board-free bearing strip); the stringers' notched seats rest on top
+        // and toe-nail to it, screwed down to the frame (billed in calcMidLanding).
+        {
+          const kickAlongP = flightEdge + dirSign * (d0 + LANDING_STRINGER_BEAR_FT - KICKER_W / 2);
+          const kickP = new THREE.Mesh(horiz
+            ? new THREE.BoxGeometry(KICKER_W, KICKER_H, stairWFt)
+            : new THREE.BoxGeometry(stairWFt, KICKER_H, KICKER_W), kickerMat);
+          kickP.position.set(horiz ? kickAlongP : sCX, (surfY - treadH) + KICKER_H / 2, horiz ? sCZ : kickAlongP);
+          scene.add(kickP);
         }
         const beamTopY = joistTopY - frameH, beamY = beamTopY - frameH / 2, beamT = 2 * frameT;
         [d0 + 0.5, d1 - 0.5].forEach(dd => {
