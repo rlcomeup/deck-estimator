@@ -373,6 +373,25 @@
   #cutSheetView .cs-note { color:var(--muted,#888); font-size:.78rem; }
   #cutSheetView .cs-drawing { width:100%; overflow:auto; margin:.2rem 0 .5rem; border:1px solid var(--border); border-radius:6px; background:#fff; }
   #cutSheetView .cs-drawing svg { display:block; width:100%; height:auto; }
+  /* ── Breaker Placement Lab overlay (evaluate example decks → learn the weights) ── */
+  #breakerLabView { display:none; }
+  #breakerLabView.open { display:flex; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.55); align-items:flex-start; justify-content:center; overflow:auto; padding:2rem 1rem; }
+  #breakerLabView .bl-box { background:var(--surface); color:var(--text); width:min(880px,96vw); border-radius:10px; max-height:92vh; overflow:auto; box-shadow:0 12px 48px rgba(0,0,0,.45); }
+  #breakerLabView .bl-bar { position:sticky; top:0; z-index:1; display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.6rem 1rem; background:var(--button-primary-bg,#2a3a5e); color:#fff; font-weight:600; }
+  #breakerLabView .bl-bar button { background:transparent; border:0; color:#fff; font-size:1.15rem; cursor:pointer; line-height:1; }
+  #breakerLabView .bl-body { padding:1rem 1.2rem 1.4rem; font-size:.86rem; }
+  #breakerLabView .bl-exlist { display:flex; flex-wrap:wrap; gap:.5rem; margin:.7rem 0; }
+  #breakerLabView .bl-ex { padding:.45rem .7rem; border:1px solid var(--border); background:var(--surface-2); color:var(--text); border-radius:8px; cursor:pointer; font-size:.8rem; }
+  #breakerLabView .bl-ex:hover { border-color:var(--accent); }
+  #breakerLabView .bl-cards { display:flex; flex-wrap:wrap; gap:.8rem; }
+  #breakerLabView .bl-card { border:2px solid var(--border); border-radius:10px; padding:.6rem; cursor:pointer; background:var(--surface-2); }
+  #breakerLabView .bl-card:hover { border-color:var(--accent); }
+  #breakerLabView .bl-chosen { border-color:var(--accent2); box-shadow:0 0 0 2px var(--accent2); }
+  #breakerLabView .bl-cap { margin-top:.4rem; font-size:.74rem; }
+  #breakerLabView .bl-foot { display:flex; justify-content:space-between; align-items:center; margin-top:1.1rem; gap:1rem; flex-wrap:wrap; }
+  #breakerLabView .bl-btn { padding:.5rem .8rem; border-radius:8px; border:0; background:var(--button-primary-bg); color:#fff; cursor:pointer; font-size:.82rem; }
+  #breakerLabView .bl-btn[disabled] { opacity:.5; cursor:not-allowed; }
+  #breakerLabView .bl-ghost { background:var(--surface-2); color:var(--text); border:1px solid var(--border); }
   .cell.stair-entry { background: var(--cell-stair) !important; outline: 2px solid var(--cell-stair-line); outline-offset: -2px; color: rgba(0,0,0,0.62); }
   .cell.no-rail { outline: 2px dashed #ef4444; outline-offset: -2px; }
   .cell.no-rail::after { content: '⌀'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #ef4444; font-size: 11px; font-weight: 700; pointer-events: none; }
@@ -779,13 +798,19 @@
           <option value="right">45° right (counter-clockwise)</option>
         </select>
       </div>
-      <div class="field" style="margin-top:.6rem">
+      <div class="field" style="margin-top:.6rem" id="breakerStyleField">
         <label title="Breaker boards split deck-board runs longer than one stock board. COST favours the least offcut waste and the fewest breakers; LOOKS favours mirror symmetry, even segments and breaks aligned to the deck's corners.">Breaker Placement <span style="font-size:10px;color:var(--muted)">(cost ⟷ looks)</span></label>
         <div style="display:flex;align-items:center;gap:.5rem">
           <span style="font-size:10px;color:var(--muted);letter-spacing:.05em">COST</span>
           <input type="range" id="breakerStyle" min="0" max="100" step="5" value="60" style="flex:1;accent-color:var(--accent)">
           <span style="font-size:10px;color:var(--muted);letter-spacing:.05em">LOOKS</span>
         </div>
+        <button type="button" style="margin-top:.4rem;padding:.3rem .55rem;font-size:10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer" onclick="openBreakerLab()">🧪 Refine with example decks…</button>
+      </div>
+      <div class="field" id="breakerLearnedNote" style="display:none;margin-top:.6rem;font-size:11px;color:var(--muted)">
+        Breaker placement: <b style="color:var(--text)">learned from your examples</b>
+        <button type="button" style="padding:.25rem .5rem;font-size:10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer;margin-left:.35rem" onclick="openBreakerLab()">review</button>
+        <button type="button" style="padding:.25rem .5rem;font-size:10px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer" onclick="resetBreakerLab()">reset</button>
       </div>
       <div class="field" style="margin-top:.6rem">
         <label>Board Fastener <span style="font-size:10px;color:var(--muted)">(2/joist, hidden clips 1/joist)</span></label>
@@ -2857,6 +2882,18 @@ function breakerSegmentsOf(breakers, length) {
   for (let i = 1; i < pts.length; i++) segs.push(pts[i] - pts[i - 1]);
   return segs;
 }
+// Slider position t (0 = COST … 1 = LOOKS) → the optimizer's score weights.
+// Single source for the live #breakerStyle slider, the Breaker Lab's candidate
+// presets, AND the learned-weights fit — all three must morph identically.
+function breakerWeightsFromT(t) {
+  return {
+    waste:        1.5 * (1 - t) + 0.1,
+    sym:          1.2 * t + 0.05,
+    uniform:      0.7 * t,
+    feature:      1.0 * t + 0.1,
+    extraBreaker: 0.03 * (1 - t),
+  };
+}
 function generateBreakerLayouts(length, positions, minSegment, maxStock) {
   const kMin = Math.max(0, Math.ceil(length / maxStock - 1e-6) - 1);
   const kMax = kMin + 2;
@@ -3162,14 +3199,12 @@ function computeDeckingLayout() {
   // FEATURES = the deck's dimension-change corners (divideXs) plus planes chosen
   // by other regions — aligning to a chosen plane merges two breaker lines into
   // one (the fewest-breaks behaviour), aligning to a corner keeps breaks natural.
-  const bT = Math.min(1, Math.max(0, (+(document.getElementById('breakerStyle')?.value ?? 60)) / 100));
-  const bWeights = {
-    waste:        1.5 * (1 - bT) + 0.1,
-    sym:          1.2 * bT + 0.05,
-    uniform:      0.7 * bT,
-    feature:      1.0 * bT + 0.1,
-    extraBreaker: 0.03 * (1 - bT),
-  };
+  // Weight source precedence: a Breaker-Lab candidate pass (per-render override)
+  // beats the LEARNED weights (fitted from the user's example evaluations — the
+  // slider is retired once those exist), which beat the live slider.
+  const bWeights = window._breakerWeightsOverride
+                || window._breakerLearnedWeights
+                || breakerWeightsFromT(Math.min(1, Math.max(0, (+(document.getElementById('breakerStyle')?.value ?? 60)) / 100)));
   const BRK_MIN_SEG = 2;   // ft — hard minimum field-segment length
   const chosenXs = [];     // planes picked so far (deck-wide) → features for later regions
   regions.sort((a, b) => (b.xR - b.xL) - (a.xR - a.xL));
@@ -7475,8 +7510,208 @@ const DEFAULT_LAYOUT = (() => {
       stairEnabled:true, stairRiseIn:'7', stairRunIn:'11', stairRisers:true },
   };
 })();
+
+// ═══ Breaker Placement Lab ══════════════════════════════════════════════
+// "Compose a couple example decks and evaluate them": each example is applied,
+// the optimizer runs once per COST↔LOOKS preset, the DISTINCT placements are
+// shown side by side and the user clicks the one they'd build. After 3+
+// evaluations, labFinalize() fits the weights (the preset family most
+// consistent with the picks), stores them, hides the #breakerStyle slider and
+// computeDeckingLayout uses window._breakerLearnedWeights from then on.
+const LAB_LS_KEY = 'deckEstimatorBreakerLab_v1';   // literal key (hoisted-const gotcha)
+function _labStore() { try { return JSON.parse(localStorage.getItem(LAB_LS_KEY)) || { evals: [] }; } catch { return { evals: [] }; } }
+function _labWrite(s) { try { localStorage.setItem(LAB_LS_KEY, JSON.stringify(s)); return true; } catch { return false; } }
+const LAB_PRESETS = [
+  { key: 'cost',      label: 'Cost-first',    t: 0    },
+  { key: 'costlean',  label: 'Cost-leaning',  t: 0.3  },
+  { key: 'balanced',  label: 'Balanced',      t: 0.55 },
+  { key: 'lookslean', label: 'Looks-leaning', t: 0.8  },
+  { key: 'looks',     label: 'Looks-first',   t: 1    },
+];
+// Example decks: small, flat, stair-less, board runs > one stock length so the
+// optimizer has real choices; shapes exercise corners / shared planes / plain runs.
+const LAB_EXAMPLES = (() => {
+  const rect = (cells, r0, c0, w, h) => { for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) cells.push([r, c]); };
+  const ctl = () => Object.assign({}, DEFAULT_LAYOUT.controls,
+    { stairEnabled: false, demoEnabled: false, deckHeight: '36', gradeBR: '0', deckLayAngle: 'perp' });
+  const mk = (name, build) => { const cells = []; build(cells); return { name,
+    layout: { v: 1, cellSize: 2, cells, stairCells: [], noRailCells: [], noFootingCells: [], controls: ctl() } }; };
+  return [
+    mk('Long porch 36×12',   c => rect(c, 0, 0, 18, 6)),
+    mk('L-shape 32×24',      c => { rect(c, 0, 0, 8, 12); rect(c, 6, 8, 8, 6); }),
+    mk('T-shape 40×20',      c => { rect(c, 0, 0, 20, 4); rect(c, 4, 6, 8, 6); }),
+    mk('Bump-out 32×14',     c => { rect(c, 0, 0, 16, 7); rect(c, 7, 2, 5, 3); }),
+    mk('U-shape 30×20',      c => { rect(c, 0, 0, 3, 10); rect(c, 0, 12, 3, 10); rect(c, 5, 0, 15, 5); }),
+  ];
+})();
+let _labReturn = null, _labCurrent = null;
+function openBreakerLab() {
+  if (!_labReturn) _labReturn = captureLayout();      // restore the user's deck on close
+  let ov = document.getElementById('breakerLabView');
+  if (!ov) { ov = document.createElement('div'); ov.id = 'breakerLabView'; document.body.appendChild(ov); }
+  _labRenderHome(ov);
+  ov.classList.add('open');
+}
+function closeBreakerLab() {
+  const ov = document.getElementById('breakerLabView');
+  if (ov) ov.classList.remove('open');
+  if (_labReturn) { const back = _labReturn; _labReturn = null; applyLayout(back); }
+}
+function _labRenderHome(ov) {
+  const st = _labStore();
+  const done = new Set(st.evals.map(e => e.name));
+  const rows = LAB_EXAMPLES.map((ex, i) =>
+    `<button type="button" class="bl-ex" onclick="labShowExample(${i})">${done.has(ex.name) ? '✅' : '▫️'} ${ex.name}</button>`).join('');
+  const customs = st.evals.filter(e => e.custom).map(e => `<span style="font-size:.78rem;margin-right:.6rem">✅ ${e.name}</span>`).join('');
+  const n = st.evals.length;
+  ov.innerHTML = `<div class="bl-box">
+    <div class="bl-bar"><span>🧪 Breaker Placement Lab</span>
+      <span><button type="button" onclick="closeBreakerLab()" title="Close">&times;</button></span></div>
+    <div class="bl-body">
+      <p style="margin:.2rem 0 .4rem">Pick the breaker-board placement <b>you would build</b> on a few example decks.
+      Each candidate is your optimizer under a different COST ⟷ LOOKS weighting.
+      After <b>3+</b> examples, lock it in — the slider goes away and the learned
+      weighting places the breakers on every deck.</p>
+      <div class="bl-exlist">${rows}
+        <button type="button" class="bl-ex" onclick="labShowExample(-1)">➕ use the CURRENT deck</button>
+      </div>
+      ${customs ? `<div style="margin:.3rem 0">${customs}</div>` : ''}
+      ${st.learned ? `<p style="color:var(--accent2);font-size:.8rem">Learned placement is ACTIVE (fit t=${st.learned.t} from ${st.learned.examples} examples). Re-evaluate and lock in again to refit.</p>` : ''}
+      <div class="bl-foot">
+        <span style="color:var(--muted)">${n} example${n === 1 ? '' : 's'} evaluated</span>
+        <span>
+          <button type="button" class="bl-btn" ${n >= 3 ? '' : 'disabled'} onclick="labFinalize()">🔒 Lock in the learned placement${n < 3 ? ` (${n}/3)` : ''}</button>
+          <button type="button" class="bl-btn bl-ghost" onclick="resetBreakerLab()">Reset</button>
+        </span>
+      </div>
+    </div></div>`;
+}
+function labShowExample(i) {
+  const ex = i >= 0 ? LAB_EXAMPLES[i]
+    : { name: 'Current deck', custom: true, layout: _labReturn || captureLayout() };
+  applyLayout(JSON.parse(JSON.stringify(ex.layout)));
+  const cands = [];
+  try {
+    for (const p of LAB_PRESETS) {
+      window._breakerWeightsOverride = breakerWeightsFromT(p.t);
+      const DL = computeDeckingLayout();
+      const xs = (DL.breakers || []).map(b => +b.x.toFixed(2)).sort((a, b) => a - b);
+      const sig = xs.join('|');
+      const hit = cands.find(c => c.sig === sig);
+      if (hit) hit.presets.push(p.key);
+      else cands.push({ sig, xs, presets: [p.key], breakers: (DL.breakers || []).map(b => ({ x: b.x, z0: b.z0, z1: b.z1 })) });
+    }
+  } finally { window._breakerWeightsOverride = null; }
+  _labCurrent = { name: ex.name, custom: !!ex.custom, cands };
+  _labRenderExample();
+}
+function _labRenderExample() {
+  const ov = document.getElementById('breakerLabView');
+  const { name, cands } = _labCurrent;
+  const prev = _labStore().evals.find(e => e.name === name);
+  const none = cands.every(c => !c.xs.length);
+  const cards = none
+    ? `<p style="color:var(--muted)">This deck needs no breaker boards (every board run fits one stock length, or the field is laid diagonally) — there is nothing to evaluate here. Pick a larger example.</p>`
+    : cands.map((c, ci) => `
+      <div class="bl-card${prev && prev.chosenSig === c.sig ? ' bl-chosen' : ''}" onclick="labChoose(${ci})">
+        ${_labSvg(c)}
+        <div class="bl-cap">${c.xs.length} breaker${c.xs.length === 1 ? '' : 's'} · <span style="color:var(--muted)">${c.presets.map(k => (LAB_PRESETS.find(p => p.key === k) || {}).label).join(' / ')}</span></div>
+      </div>`).join('');
+  ov.innerHTML = `<div class="bl-box">
+    <div class="bl-bar"><span>🧪 ${name} — which would you build?</span>
+      <span><button type="button" onclick="openBreakerLab()" title="Back to the examples">←</button>
+      <button type="button" onclick="closeBreakerLab()" title="Close">&times;</button></span></div>
+    <div class="bl-body">
+      ${!none && cands.length === 1 ? '<p style="color:var(--muted);margin:.2rem 0 .5rem">Every weighting agrees on this deck — clicking it still records the example.</p>'
+        : '<p style="color:var(--muted);margin:.2rem 0 .5rem">Orange lines are the breaker boards. Click the layout you would build.</p>'}
+      <div class="bl-cards">${cards}</div>
+    </div></div>`;
+}
+function labChoose(ci) {
+  const { name, custom, cands } = _labCurrent;
+  const c = cands[ci];
+  if (!c) return;
+  const st = _labStore();
+  st.evals = st.evals.filter(e => e.name !== name);
+  st.evals.push({ name, custom, ts: Date.now(), chosenSig: c.sig, chosenXs: c.xs,
+                  chosenPresets: c.presets,
+                  candidates: cands.map(k => ({ presets: k.presets, xs: k.xs })),
+                  layout: custom ? (_labReturn || null) : null });   // keep custom decks for future refits
+  _labWrite(st);
+  const ov = document.getElementById('breakerLabView');
+  if (ov) _labRenderHome(ov);
+}
+function labFinalize() {
+  const st = _labStore();
+  if (st.evals.length < 3) { alert('Evaluate at least 3 examples first.'); return; }
+  // The learned fit (v1): the COST↔LOOKS position most consistent with the picks —
+  // count how often each preset produced the chosen layout, average the t of the
+  // tied winners. chosenXs stay stored, so a richer fit can replace this later.
+  const score = {};
+  LAB_PRESETS.forEach(p => score[p.key] = 0);
+  st.evals.forEach(ev => (ev.chosenPresets || []).forEach(k => { if (k in score) score[k]++; }));
+  const max = Math.max(...LAB_PRESETS.map(p => score[p.key]));
+  const top = LAB_PRESETS.filter(p => score[p.key] === max);
+  const tStar = top.reduce((s, p) => s + p.t, 0) / top.length;
+  st.learned = { t: +tStar.toFixed(2), weights: breakerWeightsFromT(tStar), examples: st.evals.length, ts: Date.now() };
+  _labWrite(st);
+  window._breakerLearnedWeights = st.learned.weights;
+  _labApplyLearnedUI(true);
+  closeBreakerLab();   // restores the user's deck and re-renders under the learned weights
+}
+function resetBreakerLab() {
+  if (!confirm('Clear the learned placement and all example evaluations, and bring the COST ⟷ LOOKS slider back?')) return;
+  _labWrite({ evals: [] });
+  window._breakerLearnedWeights = null;
+  _labApplyLearnedUI(false);
+  const ov = document.getElementById('breakerLabView');
+  if (ov && ov.classList.contains('open')) _labRenderHome(ov);
+  else render();
+}
+function _labApplyLearnedUI(on) {
+  const f = document.getElementById('breakerStyleField');
+  const nn = document.getElementById('breakerLearnedNote');
+  if (f)  f.style.display  = on ? 'none' : '';
+  if (nn) nn.style.display = on ? '' : 'none';
+}
+// Top-view thumbnail of the APPLIED example: footprint cells + breaker lines.
+function _labSvg(c) {
+  let minR = 1e9, maxR = -1, minC = 1e9, maxC = -1;
+  for (let r = 0; r < ROWS; r++) for (let cc = 0; cc < COLS; cc++) if (grid[r][cc]) {
+    if (r < minR) minR = r; if (r > maxR) maxR = r;
+    if (cc < minC) minC = cc; if (cc > maxC) maxC = cc;
+  }
+  if (maxR < 0) return '';
+  const x0 = minC * cellSize, z0 = minR * cellSize;
+  const W = (maxC - minC + 1) * cellSize, H = (maxR - minR + 1) * cellSize;
+  const sc = Math.min(230 / W, 150 / H);
+  let rects = '';
+  for (let r = minR; r <= maxR; r++) {                    // one rect per horizontal cell run
+    let run = null;
+    for (let cc = minC; cc <= maxC + 1; cc++) {
+      const on = cc <= maxC && grid[r][cc];
+      if (on && run === null) run = cc;
+      if (!on && run !== null) {
+        rects += `<rect x="${((run - minC) * cellSize * sc).toFixed(1)}" y="${((r - minR) * cellSize * sc).toFixed(1)}" width="${((cc - run) * cellSize * sc).toFixed(1)}" height="${(cellSize * sc).toFixed(1)}"/>`;
+        run = null;
+      }
+    }
+  }
+  const lines = c.breakers.map(b =>
+    `<line x1="${((b.x - x0) * sc).toFixed(1)}" y1="${((b.z0 - z0) * sc).toFixed(1)}" x2="${((b.x - x0) * sc).toFixed(1)}" y2="${((b.z1 - z0) * sc).toFixed(1)}"/>`).join('');
+  return `<svg viewBox="0 0 ${(W * sc).toFixed(0)} ${(H * sc).toFixed(0)}" width="${(W * sc).toFixed(0)}" height="${(H * sc).toFixed(0)}" style="display:block">
+    <g fill="var(--surface)" stroke="var(--border)" stroke-width="1">${rects}</g>
+    <g stroke="#f97316" stroke-width="3" stroke-linecap="round">${lines}</g></svg>`;
+}
+
 applyPriceBook();              // catalog + any saved overrides become the live prices
+// Learned breaker weights (if the Lab was finalized) take over BEFORE the first render.
+try {
+  const _bl0 = _labStore();
+  if (_bl0.learned && _bl0.learned.weights) window._breakerLearnedWeights = _bl0.learned.weights;
+} catch (e) {}
 applyLayout(DEFAULT_LAYOUT);   // builds the grid, sets all controls, renders
+if (window._breakerLearnedWeights) _labApplyLearnedUI(true);   // slider retired while learned mode is on
 
 // The railing-length choices are the Home Depot stock sections for the selected
 // system; repopulate on every type change. 'auto' (default) = waste-optimal length.
