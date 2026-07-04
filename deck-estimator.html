@@ -780,6 +780,14 @@
         </select>
       </div>
       <div class="field" style="margin-top:.6rem">
+        <label title="Breaker boards split deck-board runs longer than one stock board. COST favours the least offcut waste and the fewest breakers; LOOKS favours mirror symmetry, even segments and breaks aligned to the deck's corners.">Breaker Placement <span style="font-size:10px;color:var(--muted)">(cost ⟷ looks)</span></label>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <span style="font-size:10px;color:var(--muted);letter-spacing:.05em">COST</span>
+          <input type="range" id="breakerStyle" min="0" max="100" step="5" value="60" style="flex:1;accent-color:var(--accent)">
+          <span style="font-size:10px;color:var(--muted);letter-spacing:.05em">LOOKS</span>
+        </div>
+      </div>
+      <div class="field" style="margin-top:.6rem">
         <label>Board Fastener <span style="font-size:10px;color:var(--muted)">(2/joist, hidden clips 1/joist)</span></label>
         <select id="deckFastener">
           <option value="0" selected>Coated deck screws (#9 × 2½") — $0.10 ea</option>
@@ -2835,6 +2843,83 @@ function compileJoistBoards(joists, beamOffsets, overhangFt, freestanding, lapFt
   };
 }
 
+// ── Breaker-layout optimizer (ported from the user's design) ────────
+// Pure enumerate-and-score core: list EVERY feasible breaker layout for one
+// straight region (positions snap to JOIST lines; segments must fit stock and a
+// minimum length; tries the minimum breaker count plus up to two extra — an
+// "unnecessary" breaker sometimes wins on symmetry or waste), then score each on
+// a weighted blend of purchase WASTE, mirror SYMMETRY, segment UNIFORMITY and
+// FEATURE alignment. The #breakerStyle slider morphs the weights COST ↔ LOOKS.
+const BREAKER_MAX_EVALS = 250000;   // safety valve for huge decks
+function breakerSegmentsOf(breakers, length) {
+  const pts = [0, ...breakers, length];
+  const segs = [];
+  for (let i = 1; i < pts.length; i++) segs.push(pts[i] - pts[i - 1]);
+  return segs;
+}
+function generateBreakerLayouts(length, positions, minSegment, maxStock) {
+  const kMin = Math.max(0, Math.ceil(length / maxStock - 1e-6) - 1);
+  const kMax = kMin + 2;
+  const layouts = [];
+  let evals = 0;
+  for (let k = kMin; k <= kMax; k++) {
+    if (k === 0) { if (length <= maxStock + 1e-6) layouts.push([]); continue; }
+    const chosen = [];
+    const rec = (startIdx, prev) => {
+      if (evals > BREAKER_MAX_EVALS) return;
+      if (chosen.length === k) {
+        const last = length - prev;
+        if (last >= minSegment - 1e-6 && last <= maxStock + 1e-6) { evals++; layouts.push([...chosen]); }
+        return;
+      }
+      for (let i = startIdx; i < positions.length; i++) {
+        const seg = positions[i] - prev;
+        if (seg < minSegment - 1e-6) continue;
+        if (seg > maxStock + 1e-6) break;                    // positions ascend; no point continuing
+        const remBreakers = k - chosen.length - 1;
+        const remaining = length - positions[i];
+        if (remaining > (remBreakers + 1) * maxStock + 1e-6) continue;
+        if (remaining < (remBreakers + 1) * minSegment - 1e-6) break;
+        chosen.push(positions[i]);
+        rec(i + 1, positions[i]);
+        chosen.pop();
+      }
+    };
+    rec(0, 0);
+  }
+  return layouts;
+}
+// Lower is better; null = infeasible. Terms normalized ~0..1:
+//   waste   — offcut per foot when each segment cuts from the cheapest stock
+//   asym    — mirror-asymmetry of segments around the region centreline
+//   cv      — coefficient of variation of segment lengths (uniformity)
+//   feature — distance from each feature to its nearest breaker (capped at 4 ft)
+function scoreBreakerLayout(breakers, length, features, weights) {
+  const segs = breakerSegmentsOf(breakers, length);
+  let wasteLF = 0;
+  for (const s of segs) {
+    const st = cheapestStockFor(s);
+    if (st === null) return null;
+    wasteLF += st - s;
+  }
+  const waste = wasteLF / length;
+  let asym = 0;
+  const n = segs.length;
+  for (let i = 0; i < n; i++) asym += Math.abs(segs[i] - segs[n - 1 - i]);
+  asym /= 2 * length;
+  const mean = length / n;
+  const cv = Math.sqrt(segs.reduce((a, s) => a + (s - mean) ** 2, 0) / n) / mean;
+  let feature = 0;
+  if (features.length && breakers.length) {
+    const CAP = 4;                                           // beyond 4 ft, alignment credit is gone
+    let acc = 0;
+    for (const f of features) acc += Math.min(Math.min(...breakers.map(b => Math.abs(b - f))), CAP) / CAP;
+    feature = acc / features.length;
+  } else if (features.length && !breakers.length) feature = 1;
+  return weights.waste * waste + weights.sym * asym + weights.uniform * cv
+       + weights.feature * feature + weights.extraBreaker * breakers.length;
+}
+
 // ── Shared decking layout ───────────────────────────────────────────
 // THE single source of truth for deck-board placement: the picture-frame
 // border course along every exposed edge, perpendicular breaker boards over
@@ -3062,89 +3147,50 @@ function computeDeckingLayout() {
     if (reg) { reg.xL = Math.min(reg.xL, run.xL); reg.xR = Math.max(reg.xR, run.xR); }
     else regions.push({ xL: run.xL, xR: run.xR, z: run.z });
   }
-  // ── Joist grid + bay centres (for breaker placement) ──────────────
-  // Joists run parallel to the breakers, on the regular grid x0 + i·spacing (plus a
-  // joist at the far edge) — the SAME positions computeBlocking reads. A breaker is
-  // cheapest to support (and structurally clean) when it lands in a joist BAY: that
-  // needs blocking in ONE bay. Over a joist, its 5½" edges + the field butt-ends hang
-  // into BOTH adjacent bays, so BOTH must be blocked. We therefore steer each breaker
-  // plane to the nearest bay CENTRE — unless that would over-length a field section
-  // (a costlier longer board, or an extra breaker) or strand an unsightly sliver of
-  // field boards at the perimeter, in which case it stays put (over a joist is then
-  // allowed, blocked both sides).
+  // ── Joist grid (breaker candidate positions) ──────────────────────
+  // The optimizer SNAPS breakers TO JOIST LINES (its design): computeBlocking
+  // already blocks BOTH adjacent bays when a breaker sits over a joist, so the
+  // extra blocking bills automatically — no special-casing here.
   const x1d = (maxC + 1) * cellSize;
   const joistXs = [];
   for (let i = 0; ; i++) { const jx = x0 + i * spacingFt; if (jx > x1d + 0.01) break; joistXs.push(+jx.toFixed(3)); }
   if (!joistXs.length || joistXs[joistXs.length - 1] < x1d - 0.01) joistXs.push(+x1d.toFixed(3));
-  const bayCtrs = [];
-  for (let i = 0; i + 1 < joistXs.length; i++) bayCtrs.push((joistXs[i] + joistXs[i + 1]) / 2);
-  const overJoist = x => joistXs.some(jx => Math.abs(jx - x) < boardW / 2 + 1e-6);   // joist under the breaker footprint
-  const MIN_FIELD_SPAN = 1.5;   // ft — field sections shorter than this read as slivers
 
-  // FEWEST BREAKS FIRST: every region uses the hard MINIMUM plane count
-  // (nSeg−1 = ceil(len/stock)−1 — never an extra breaker), and regions are solved
-  // longest-first so later regions REUSE an already-chosen plane X whenever one
-  // satisfies their constraints — two long areas then share ONE breaker line
-  // instead of cutting the deck twice. Fewer breaks = longer deck-board runs.
-  // Among minimum-count layouts, each plane picks its spot by a small DP over a
-  // MIXED candidate pool. Per-plane cost (lower is better):
-  //   reuses a plane another region chose  −400   (no new break on the deck)
-  //   on a dimension-change line           −150   (natural break at a corner/step)
-  //   on a joist-bay centre                 −10   (cheapest blocking)
-  //   even-grid fallback                      0
-  //   footprint over a joist               +100   (needs blocking in BOTH bays)
-  // plus the existing sliver penalties on short field sections. A natural line nets
-  // −50 even when it sits over a joist, so corners still beat plain bay centres.
-  const SHARED_BONUS = -400, NATURAL_BONUS = -150, BAY_BONUS = -10, OVERJOIST_PEN = 100;
-  const chosenXs = [];   // planes picked so far (deck-wide) — later regions try to reuse them
+  // Enumerate-and-score breaker optimizer (helpers above). #breakerStyle morphs
+  // the weights: 0 = CHEAPEST (waste-driven, extra breakers discouraged) … 100 =
+  // BEST-LOOKING (symmetry / uniformity / feature alignment, extras free).
+  // FEATURES = the deck's dimension-change corners (divideXs) plus planes chosen
+  // by other regions — aligning to a chosen plane merges two breaker lines into
+  // one (the fewest-breaks behaviour), aligning to a corner keeps breaks natural.
+  const bT = Math.min(1, Math.max(0, (+(document.getElementById('breakerStyle')?.value ?? 60)) / 100));
+  const bWeights = {
+    waste:        1.5 * (1 - bT) + 0.1,
+    sym:          1.2 * bT + 0.05,
+    uniform:      0.7 * bT,
+    feature:      1.0 * bT + 0.1,
+    extraBreaker: 0.03 * (1 - bT),
+  };
+  const BRK_MIN_SEG = 2;   // ft — hard minimum field-segment length
+  const chosenXs = [];     // planes picked so far (deck-wide) → features for later regions
   regions.sort((a, b) => (b.xR - b.xL) - (a.xR - a.xL));
   regions.forEach(reg => {
     const len = reg.xR - reg.xL;
+    if (len <= maxBoard + 1e-6) return;                       // fits one board — no breaker needed
+    const positions = joistXs.filter(x => x > reg.xL + 1e-3 && x < reg.xR - 1e-3)
+                             .map(x => +(x - reg.xL).toFixed(3));
+    const features  = [...divideXs, ...chosenXs]
+      .filter(x => x > reg.xL + 0.3 && x < reg.xR - 0.3)
+      .map(x => +(x - reg.xL).toFixed(3));
+    const layouts = generateBreakerLayouts(len, positions, BRK_MIN_SEG, maxBoard);
+    let best = null, bestScore = Infinity;
+    for (const b of layouts) {
+      const s = scoreBreakerLayout(b, len, features, bWeights);
+      if (s !== null && s < bestScore - 1e-12) { bestScore = s; best = b; }
+    }
     const nSeg = Math.ceil(len / maxBoard);
-    if (nSeg < 2) return;
-    const inReg = a => a.filter(v => v > reg.xL + 0.3 && v < reg.xR - 0.3);
-    const divs = inReg(divideXs), bays = inReg(bayCtrs), shared = inReg(chosenXs);
-    const segPen = (w, isEnd) => (w < MIN_FIELD_SPAN ? (isEnd ? 80 : 40) * (MIN_FIELD_SPAN - w) : 0);
-    // Optimal nP planes from the pooled candidates: every section ≤ one stock board,
-    // planes ≥ a board width apart. best[i][k] = cheapest way to make candidate i the
-    // k-th plane; reconstruct through prev[][].
-    const nP = nSeg - 1;
-    const cmap = new Map();
-    const addC = (x, bonus) => { const k = +x.toFixed(3); if (!cmap.has(k) || bonus < cmap.get(k)) cmap.set(k, bonus); };
-    for (let k = 1; k < nSeg; k++) addC(reg.xL + len * k / nSeg, 0);
-    bays.forEach(x => addC(x, BAY_BONUS));
-    divs.forEach(x => addC(x, NATURAL_BONUS));
-    shared.forEach(x => addC(x, SHARED_BONUS));   // added LAST → reuse beats every other tag at the same X
-    const cand = [...cmap.entries()].map(([x, bonus]) => ({ x, bonus })).sort((a, b) => a.x - b.x);
-    const N = cand.length;
-    const pc = i => cand[i].bonus + (overJoist(cand[i].x) ? OVERJOIST_PEN : 0);
-    const best = Array.from({ length: N }, () => new Array(nP + 1).fill(Infinity));
-    const prev = Array.from({ length: N }, () => new Array(nP + 1).fill(-1));
-    for (let i = 0; i < N; i++) {
-      const g0 = cand[i].x - reg.xL;
-      if (g0 >= boardW && g0 <= maxBoard + 1e-6) best[i][1] = pc(i) + segPen(g0, true);
-      for (let k = 2; k <= nP; k++)
-        for (let j = 0; j < i; j++) {
-          const g = cand[i].x - cand[j].x;
-          if (g < boardW || g > maxBoard + 1e-6 || best[j][k - 1] === Infinity) continue;
-          const c = best[j][k - 1] + pc(i) + segPen(g, false);
-          if (c < best[i][k] - 1e-9) { best[i][k] = c; prev[i][k] = j; }
-        }
-    }
-    let endI = -1, endC = Infinity;
-    for (let i = 0; i < N; i++) {
-      const gE = reg.xR - cand[i].x;
-      if (gE < boardW || gE > maxBoard + 1e-6 || best[i][nP] === Infinity) continue;
-      const c = best[i][nP] + segPen(gE, true);
-      if (c < endC - 1e-9) { endC = c; endI = i; }
-    }
-    let chosen;
-    if (endI >= 0) {
-      chosen = [];
-      for (let i = endI, k = nP; k >= 1; i = prev[i][k], k--) chosen.unshift(cand[i].x);
-    } else {
-      chosen = Array.from({ length: nP }, (_, k) => reg.xL + len * (k + 1) / nSeg);   // defensive even fallback
-    }
+    const chosen = (best && best.length)
+      ? best.map(b => reg.xL + b)
+      : Array.from({ length: nSeg - 1 }, (_, k) => reg.xL + len * (k + 1) / nSeg);   // defensive even fallback
     chosen.forEach(cx => {
       if (!chosenXs.some(px => Math.abs(px - cx) < 1e-6)) chosenXs.push(cx);
       seams.push({ x: +cx.toFixed(3), z: reg.z });
