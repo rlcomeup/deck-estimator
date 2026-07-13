@@ -428,6 +428,10 @@
   .modal3d-bar span { color:var(--text); font-weight:600; font-size:.95rem; }
   .modal3d-bar button { background:none; border:none; color:var(--muted); font-size:1.5rem; cursor:pointer; line-height:1; padding:0 6px; }
   .modal3d-bar button:hover { color:var(--text); }
+  /* The close × gets a real tap target (44px Apple HIG minimum) on every pointer. */
+  .modal3d-bar button.m3d-x { min-width:44px; min-height:40px; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; }
+  .modal3d-bar button.m3d-x:active { background:var(--surface-2); color:var(--text); }
+  .m3d-close-touch { display:none; }   /* bottom-bar Close — phones only (thumb zone) */
   /* min-height/width:0 — without inline sizes (setSize updateStyle=false) the canvas's
      intrinsic buffer size would act as min-content and blow the flex layout open. */
   #canvas3d { flex:1; width:100%; min-height:0; min-width:0; display:block; cursor:grab; outline:none; }
@@ -475,7 +479,19 @@
     .modal3d-box { width:100vw; max-width:100vw; height:100dvh; border-radius:0; border:none; }
     #modal3d.open { padding:0; }
     #legend3d { display:none; }   /* mouse/keyboard help — meaningless on touch */
-    #labelPanel3d { top:50px; right:8px; max-height:calc(100% - 110px); }
+    /* Closing the render must be EASY (user fix): with viewport-fit=cover the
+       edge-to-edge PWA slides the header under the iPhone status bar/notch, and
+       the bare × was a ~20px target. Three layers:
+       1. the header bar clears the notch (safe-area top padding),
+       2. the × becomes a big bordered 52px button,
+       3. a ✕ Close button joins the BOTTOM bar — the thumb zone — with the
+          whole bottom row bumped to tappable sizes + home-bar clearance. */
+    #modal3d .modal3d-box > .modal3d-bar:first-child { padding-top:max(.7rem, env(safe-area-inset-top)); }
+    .modal3d-bar button.m3d-x { min-width:52px; min-height:48px; font-size:1.9rem; color:var(--text); background:var(--surface-2); border:1px solid var(--border); }
+    #modal3d .modal3d-bar .tbtn { font-size:12px !important; padding:9px 12px !important; }
+    #modal3d .modal3d-bar .tbtn.m3d-close-touch { display:inline-block !important; background:var(--accent) !important; border-color:var(--accent) !important; color:#fff !important; font-weight:700; font-size:13px !important; padding:14px 18px !important; }
+    #modal3d .modal3d-box > .modal3d-bar:last-child { padding-bottom:max(.35rem, env(safe-area-inset-bottom)) !important; }
+    #labelPanel3d { top:max(58px, calc(env(safe-area-inset-top) + 48px)); right:8px; max-height:calc(100% - 140px); }
   }
   .modal3d-hint { color:var(--muted); font-size:.73rem; text-align:center; padding:.35rem; flex-shrink:0; }
 
@@ -8187,7 +8203,7 @@ document.getElementById('gridWrap').addEventListener('wheel', e => {
   <div class="modal3d-box">
     <div class="modal3d-bar">
       <span>3D Preview</span>
-      <button onclick="close3DPreview()">&times;</button>
+      <button class="m3d-x" onclick="close3DPreview()" aria-label="Close 3D preview">&times;</button>
     </div>
     <canvas id="canvas3d" tabindex="0"></canvas>
     <div id="legend3d">
@@ -8218,6 +8234,7 @@ document.getElementById('gridWrap').addEventListener('wheel', e => {
         <button class="tbtn" style="font-size:11px;padding:3px 9px" onclick="_setCamView3d && _setCamView3d('top')">▲ Top</button>
         <button class="tbtn" style="font-size:11px;padding:3px 9px" onclick="_setCamView3d && _setCamView3d('side')">▶ Side</button>
         <button class="tbtn" style="font-size:11px;padding:3px 9px" onclick="_setCamView3d && _setCamView3d('under')">▼ Under</button>
+        <button class="tbtn m3d-close-touch" onclick="close3DPreview()">✕ Close</button>
       </div>
     </div>
   </div>
