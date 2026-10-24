@@ -2898,9 +2898,13 @@ function breakerSegmentsOf(breakers, length) {
   for (let i = 1; i < pts.length; i++) segs.push(pts[i] - pts[i - 1]);
   return segs;
 }
+// The scored terms, in feature-vector order. rail / stair come from the photo
+// survey of built decks: breakers that end AT a guard post, and breakers lined
+// up with the stair opening (centre or either edge), recur across builders.
+const BRK_TERMS = ['waste', 'sym', 'uniform', 'feature', 'extraBreaker', 'rail', 'stair'];
 // Slider position t (0 = COST … 1 = LOOKS) → the optimizer's score weights.
 // Single source for the live #breakerStyle slider, the Breaker Lab's candidate
-// presets, AND the learned-weights fit — all three must morph identically.
+// presets, AND the learner's prior — all three must morph identically.
 function breakerWeightsFromT(t) {
   return {
     waste:        1.5 * (1 - t) + 0.1,
@@ -2908,6 +2912,8 @@ function breakerWeightsFromT(t) {
     uniform:      0.7 * t,
     feature:      1.0 * t + 0.1,
     extraBreaker: 0.03 * (1 - t),
+    rail:         0.25 * t + 0.05,
+    stair:        0.35 * t + 0.05,
   };
 }
 function generateBreakerLayouts(length, positions, minSegment, maxStock) {
@@ -2942,12 +2948,17 @@ function generateBreakerLayouts(length, positions, minSegment, maxStock) {
   }
   return layouts;
 }
-// Lower is better; null = infeasible. Terms normalized ~0..1:
+// The layout's term vector, in BRK_TERMS order; null = infeasible. Terms ~0..1
+// (lower = better) except the raw breaker count:
 //   waste   — offcut per foot when each segment cuts from the cheapest stock
-//   asym    — mirror-asymmetry of segments around the region centreline
-//   cv      — coefficient of variation of segment lengths (uniformity)
-//   feature — distance from each feature to its nearest breaker (capped at 4 ft)
-function scoreBreakerLayout(breakers, length, features, weights) {
+//   sym     — mirror-asymmetry of segments around the region centreline
+//   uniform — coefficient of variation of segment lengths
+//   feature — distance from each corner/shared-plane feature to its nearest breaker (cap 4 ft)
+//   extraBreaker — the breaker count
+//   rail    — mean distance from each breaker to the nearest guard post it could meet (cap 1 ft)
+//   stair   — distance from the stair opening (centre / edges) to the nearest breaker (cap 3 ft)
+// `extra` = { railXs, stairXs } region-relative; absent or empty → that term is 0.
+function breakerFeatures(breakers, length, features, extra) {
   const segs = breakerSegmentsOf(breakers, length);
   let wasteLF = 0;
   for (const s of segs) {
@@ -2962,15 +2973,138 @@ function scoreBreakerLayout(breakers, length, features, weights) {
   asym /= 2 * length;
   const mean = length / n;
   const cv = Math.sqrt(segs.reduce((a, s) => a + (s - mean) ** 2, 0) / n) / mean;
+  const nearest = (x, list) => { let d = Infinity; for (const y of list) { const e = Math.abs(x - y); if (e < d) d = e; } return d; };
   let feature = 0;
   if (features.length && breakers.length) {
     const CAP = 4;                                           // beyond 4 ft, alignment credit is gone
     let acc = 0;
-    for (const f of features) acc += Math.min(Math.min(...breakers.map(b => Math.abs(b - f))), CAP) / CAP;
+    for (const f of features) acc += Math.min(nearest(f, breakers), CAP) / CAP;
     feature = acc / features.length;
   } else if (features.length && !breakers.length) feature = 1;
-  return weights.waste * waste + weights.sym * asym + weights.uniform * cv
-       + weights.feature * feature + weights.extraBreaker * breakers.length;
+  const railXs = (extra && extra.railXs) || [], stairXs = (extra && extra.stairXs) || [];
+  let rail = 0;
+  if (railXs.length && breakers.length) {
+    let acc = 0;
+    for (const b of breakers) acc += Math.min(nearest(b, railXs), 1);
+    rail = acc / breakers.length;
+  }
+  let stair = 0;
+  if (stairXs.length) {
+    if (!breakers.length) stair = 1;
+    else { let d = Infinity; for (const s of stairXs) d = Math.min(d, nearest(s, breakers)); stair = Math.min(d, 3) / 3; }
+  }
+  return [waste, asym, cv, feature, breakers.length, rail, stair];
+}
+// Lower is better; null = infeasible. `weights` is either a plain weight object
+// (slider / Lab preset) or the learner network (has .U) — same term vector.
+function scoreBreakerLayout(breakers, length, features, weights, extra) {
+  const phi = breakerFeatures(breakers, length, features, extra);
+  if (!phi) return null;
+  if (weights && weights.U) return brkNetScore(weights, phi);
+  let s = 0;
+  for (let i = 0; i < BRK_TERMS.length; i++) s += (weights[BRK_TERMS[i]] || 0) * phi[i];
+  return s;
+}
+
+// ── Learnable breaker scorer: a small neural network trained by your picks ──
+// score(φ) = w·φ + Σ_h a_h · tanh(U_h·(φ⊙scale) + c_h)
+// The linear part starts AT the prior weights and every a_h starts at 0, so an
+// untrained net places breakers exactly like the weight formulas. Each Breaker-Lab
+// pick adds pairwise comparisons ("this layout beat those"); training minimises a
+// RankNet logistic loss on the deck-level score (sum over regions), pulled toward
+// the prior by L2 so a handful of picks can't swing it wildly. The hidden units
+// let it learn interactions a single weight can't (e.g. symmetry mattering only
+// when no corner is available).
+const BRK_HIDDEN = 6;
+const BRK_INPUT_SCALE = [1, 1, 1, 1, 0.25, 1, 1];   // breaker count (1–4) → ~0..1 for the tanh layer
+function brkNetInit(prior) {
+  let seed = 20261024;                               // deterministic init: a reset reproduces exactly
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return (seed / 2147483648 - 0.5) * 0.8; };
+  const D = BRK_TERMS.length;
+  const p = BRK_TERMS.map(k => +(prior[k] || 0));
+  return { v: 1, prior: p.slice(), w: p.slice(),
+           U: Array.from({ length: BRK_HIDDEN }, () => Array.from({ length: D }, rnd)),
+           c: Array(BRK_HIDDEN).fill(0), a: Array(BRK_HIDDEN).fill(0) };
+}
+function brkNetScore(net, phi) {
+  let s = 0;
+  for (let i = 0; i < phi.length; i++) s += net.w[i] * phi[i];
+  for (let h = 0; h < net.a.length; h++) {
+    if (!net.a[h]) continue;
+    let z = net.c[h];
+    const u = net.U[h];
+    for (let i = 0; i < phi.length; i++) z += u[i] * phi[i] * BRK_INPUT_SCALE[i];
+    s += net.a[h] * Math.tanh(z);
+  }
+  return s;
+}
+// Deck-level score of one candidate = sum of its regions' scores.
+function brkNetDeckScore(net, phis) { return phis.reduce((s, phi) => s + brkNetScore(net, phi), 0); }
+// Train on every recorded pick: evals[].cands[k].phis (per-region term vectors),
+// evals[].chosen = the index the user picked. Full-batch gradient descent with
+// Adam; returns { net, agree, pairs } (agree = picks the trained net now ranks first).
+function brkNetTrain(net, evals, opts = {}) {
+  // LW (pull of the linear weights toward the prior) is deliberately weaker than LH
+  // (pull of the hidden layer toward zero): picks are explained by the plain,
+  // generalising weights first, and the hidden layer only takes the residual —
+  // otherwise it memorises the picks and invents odd layouts on new decks.
+  const BETA = opts.beta ?? 12, LW = opts.lw ?? 0.15, LH = opts.lh ?? 0.6, LR = opts.lr ?? 0.03, ITERS = opts.iters ?? 400;
+  const pairs = [];
+  evals.forEach(ev => {
+    if (!ev.cands || ev.chosen == null || !ev.cands[ev.chosen] || !ev.cands[ev.chosen].phis) return;
+    ev.cands.forEach((c, k) => { if (k !== ev.chosen && c.phis && c.sig !== ev.cands[ev.chosen].sig) pairs.push([ev.cands[ev.chosen].phis, c.phis]); });
+  });
+  const D = BRK_TERMS.length, H = net.a.length;
+  const n = JSON.parse(JSON.stringify(net));
+  if (pairs.length) {
+    const params = () => [n.w, n.c, n.a, ...n.U];
+    const m = params().map(v => v.map(() => 0)), s2 = params().map(v => v.map(() => 0));
+    for (let it = 1; it <= ITERS; it++) {
+      const g = { w: Array(D).fill(0), c: Array(H).fill(0), a: Array(H).fill(0), U: Array.from({ length: H }, () => Array(D).fill(0)) };
+      const accum = (phis, coef) => {               // coef · d(deck score)/dθ
+        for (const phi of phis) {
+          for (let i = 0; i < D; i++) g.w[i] += coef * phi[i];
+          for (let h = 0; h < H; h++) {
+            let z = n.c[h];
+            for (let i = 0; i < D; i++) z += n.U[h][i] * phi[i] * BRK_INPUT_SCALE[i];
+            const t = Math.tanh(z), dz = n.a[h] * (1 - t * t);
+            g.a[h] += coef * t;
+            g.c[h] += coef * dz;
+            for (let i = 0; i < D; i++) g.U[h][i] += coef * dz * phi[i] * BRK_INPUT_SCALE[i];
+          }
+        }
+      };
+      for (const [win, lose] of pairs) {
+        const mgn = BETA * (brkNetDeckScore(n, lose) - brkNetDeckScore(n, win));   // want winner LOWER
+        const sg = 1 / (1 + Math.exp(mgn));          // = σ(−mgn) = dLoss/d(−mgn)
+        accum(win, BETA * sg / pairs.length);
+        accum(lose, -BETA * sg / pairs.length);
+      }
+      for (let i = 0; i < D; i++) g.w[i] += 2 * LW * (n.w[i] - n.prior[i]);
+      for (let h = 0; h < H; h++) { g.a[h] += 2 * LH * n.a[h]; for (let i = 0; i < D; i++) g.U[h][i] += 2 * LH * 0.1 * n.U[h][i]; }
+      const grads = [g.w, g.c, g.a, ...g.U];
+      params().forEach((v, pi) => {
+        for (let j = 0; j < v.length; j++) {
+          m[pi][j]  = 0.9 * m[pi][j] + 0.1 * grads[pi][j];
+          s2[pi][j] = 0.999 * s2[pi][j] + 0.001 * grads[pi][j] * grads[pi][j];
+          const mh = m[pi][j] / (1 - Math.pow(0.9, it)), vh = s2[pi][j] / (1 - Math.pow(0.999, it));
+          v[j] -= LR * mh / (Math.sqrt(vh) + 1e-8);
+        }
+      });
+    }
+  }
+  let agree = 0, total = 0;
+  evals.forEach(ev => {
+    if (!ev.cands || ev.chosen == null || !ev.cands[ev.chosen] || !ev.cands[ev.chosen].phis) return;
+    const distinct = new Set(ev.cands.map(c => c.sig)).size;
+    if (distinct < 2) return;
+    total++;
+    let best = -1, bs = Infinity;
+    ev.cands.forEach((c, k) => { if (!c.phis) return; const s = brkNetDeckScore(n, c.phis); if (s < bs - 1e-12) { bs = s; best = k; } });
+    if (best >= 0 && ev.cands[best].sig === ev.cands[ev.chosen].sig) agree++;
+  });
+  n.pairs = pairs.length;
+  return { net: n, agree, total, pairs: pairs.length };
 }
 
 // ── Shared decking layout ───────────────────────────────────────────
@@ -3218,10 +3352,23 @@ function computeDeckingLayout() {
   // Weight source precedence: a Breaker-Lab candidate pass (per-render override)
   // beats the LEARNED weights (fitted from the user's example evaluations — the
   // slider is retired once those exist), which beat the live slider.
+  // The trained network (window._breakerNet) replaces the weights once the user
+  // locks it in from the Breaker Lab.
   const bWeights = window._breakerWeightsOverride
+                || window._breakerNet
                 || window._breakerLearnedWeights
                 || breakerWeightsFromT(Math.min(1, Math.max(0, (+(document.getElementById('breakerStyle')?.value ?? 60)) / 100)));
   const BRK_MIN_SEG = 2;   // ft — hard minimum field-segment length
+  // Photo-survey alignment targets, absolute X: guard posts on the edges a breaker
+  // runs into (front/back runs — posts on side runs sit parallel to breakers), and
+  // the stair openings on those edges (centre + both edges).
+  const railAbsXs = railingPostPositions().filter(p => p.a === 'x').map(p => p.x);
+  const stairAbsXs = (() => {
+    const g = stairGapsForSides({ minR, maxR, minC, maxC }, document.getElementById('deckType')?.value === 'freestanding');
+    const xs = [];
+    [...g.top, ...g.bottom].forEach(({ from, to }) => xs.push(from, (from + to) / 2, to));
+    return xs;
+  })();
   const chosenXs = [];     // planes picked so far (deck-wide) → features for later regions
   regions.sort((a, b) => (b.xR - b.xL) - (a.xR - a.xL));
   regions.forEach(reg => {
@@ -3232,12 +3379,15 @@ function computeDeckingLayout() {
     const features  = [...divideXs, ...chosenXs]
       .filter(x => x > reg.xL + 0.3 && x < reg.xR - 0.3)
       .map(x => +(x - reg.xL).toFixed(3));
+    const rel = xs => xs.filter(x => x > reg.xL + 0.3 && x < reg.xR - 0.3).map(x => +(x - reg.xL).toFixed(3));
+    const extra = { railXs: rel(railAbsXs), stairXs: rel(stairAbsXs) };
     const layouts = generateBreakerLayouts(len, positions, BRK_MIN_SEG, maxBoard);
     let best = null, bestScore = Infinity;
     for (const b of layouts) {
-      const s = scoreBreakerLayout(b, len, features, bWeights);
+      const s = scoreBreakerLayout(b, len, features, bWeights, extra);
       if (s !== null && s < bestScore - 1e-12) { bestScore = s; best = b; }
     }
+    if (window._breakerCapture && best) window._breakerCapture.push(breakerFeatures(best, len, features, extra));
     const nSeg = Math.ceil(len / maxBoard);
     const chosen = (best && best.length)
       ? best.map(b => reg.xL + b)
@@ -3747,7 +3897,7 @@ function railingPostPositions() {
       const fz = e.fixed + (RAIL_INSET_SGN[e.id] || 0) * RAIL_CENTER_INSET_FT;   // inset off the edge
       for (let i = 0; i < n; i++) {
         const t = from + (len / (n - 1)) * i;
-        posts.push(e.a === 'x' ? { x: t, z: fz } : { x: fz, z: t });
+        posts.push(e.a === 'x' ? { x: t, z: fz, a: 'x' } : { x: fz, z: t, a: 'z' });
       }
     });
   });
@@ -7529,13 +7679,21 @@ const DEFAULT_LAYOUT = (() => {
 
 // ═══ Breaker Placement Lab ══════════════════════════════════════════════
 // "Compose a couple example decks and evaluate them": each example is applied,
-// the optimizer runs once per COST↔LOOKS preset, the DISTINCT placements are
-// shown side by side and the user clicks the one they'd build. After 3+
-// evaluations, labFinalize() fits the weights (the preset family most
-// consistent with the picks), stores them, hides the #breakerStyle slider and
-// computeDeckingLayout uses window._breakerLearnedWeights from then on.
+// the optimizer runs under several weightings (the COST↔LOOKS presets, the
+// photo-survey emphases, and the learner network's own pick), the DISTINCT
+// placements are shown side by side and the user clicks the one they'd build.
+// Every pick RETRAINS the network (brkNetTrain) on all picks so far — it
+// improves with each selection; the Lab reports its guess and accuracy. After
+// 3+ picks the user locks it in: the #breakerStyle slider is hidden and
+// computeDeckingLayout scores with window._breakerNet. Later picks keep training
+// the live network.
 const LAB_LS_KEY = 'deckEstimatorBreakerLab_v1';   // literal key (hoisted-const gotcha)
-function _labStore() { try { return JSON.parse(localStorage.getItem(LAB_LS_KEY)) || { evals: [] }; } catch { return { evals: [] }; } }
+function _labStore() {
+  let s;
+  try { s = JSON.parse(localStorage.getItem(LAB_LS_KEY)) || {}; } catch { s = {}; }
+  s.evals = (s.evals || []).filter(e => e.cands);    // v1 picks (no term vectors) can't train — dropped
+  return s;
+}
 function _labWrite(s) { try { localStorage.setItem(LAB_LS_KEY, JSON.stringify(s)); return true; } catch { return false; } }
 const LAB_PRESETS = [
   { key: 'cost',      label: 'Cost-first',    t: 0    },
@@ -7543,28 +7701,43 @@ const LAB_PRESETS = [
   { key: 'balanced',  label: 'Balanced',      t: 0.55 },
   { key: 'lookslean', label: 'Looks-leaning', t: 0.8  },
   { key: 'looks',     label: 'Looks-first',   t: 1    },
+  { key: 'posts',     label: 'At railing posts', t: 0.6, boost: { rail: 4 } },
+  { key: 'stairs',    label: 'Lined up with stairs', t: 0.6, boost: { stair: 4 } },
 ];
-// Example decks: small, flat, stair-less, board runs > one stock length so the
-// optimizer has real choices; shapes exercise corners / shared planes / plain runs.
+const LAB_TERM_NAMES = { waste: 'low offcut waste', sym: 'mirror symmetry', uniform: 'equal segment lengths',
+  feature: 'breaks at corners / shared lines', extraBreaker: 'fewer breakers',
+  rail: 'lined up with railing posts', stair: 'lined up with the stairs' };
+function _labPriorT() { return 0.6; }
+function _labPresetWeights(p) {
+  const w = breakerWeightsFromT(p.t);
+  Object.entries(p.boost || {}).forEach(([k, m]) => { w[k] = (w[k] || 0) * m; });
+  return w;
+}
+// Example decks: flat, board runs > one stock length so the optimizer has real
+// choices. Shapes exercise corners / shared planes / plain runs, and two carry
+// stairs so the photo-survey stair alignment has something to align to.
 const LAB_EXAMPLES = (() => {
   const rect = (cells, r0, c0, w, h) => { for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) cells.push([r, c]); };
-  const ctl = () => Object.assign({}, DEFAULT_LAYOUT.controls,
-    { stairEnabled: false, demoEnabled: false, deckHeight: '36', gradeBR: '0', deckLayAngle: 'perp' });
-  const mk = (name, build) => { const cells = []; build(cells); return { name,
-    layout: { v: 1, cellSize: 2, cells, stairCells: [], noRailCells: [], noFootingCells: [], controls: ctl() } }; };
+  const ctl = stairs => Object.assign({}, DEFAULT_LAYOUT.controls,
+    { stairEnabled: !!stairs, demoEnabled: false, deckHeight: '36', gradeBR: '0', deckLayAngle: 'perp' });
+  const mk = (name, build, stairCells = []) => { const cells = []; build(cells); return { name,
+    layout: { v: 1, cellSize: 2, cells, stairCells, noRailCells: stairCells.slice(), noFootingCells: [], controls: ctl(stairCells.length) } }; };
   return [
     mk('Long porch 36×12',   c => rect(c, 0, 0, 18, 6)),
     mk('L-shape 32×24',      c => { rect(c, 0, 0, 8, 12); rect(c, 6, 8, 8, 6); }),
     mk('T-shape 40×20',      c => { rect(c, 0, 0, 20, 4); rect(c, 4, 6, 8, 6); }),
     mk('Bump-out 32×14',     c => { rect(c, 0, 0, 16, 7); rect(c, 7, 2, 5, 3); }),
     mk('U-shape 30×20',      c => { rect(c, 0, 0, 3, 10); rect(c, 0, 12, 3, 10); rect(c, 5, 0, 15, 5); }),
+    mk('Stairs off-centre 34×14', c => rect(c, 0, 0, 17, 7), [[6, 4], [6, 5]]),
+    mk('Centre stairs 38×12',     c => rect(c, 0, 0, 19, 6), [[5, 9], [5, 10]]),
   ];
 })();
-let _labReturn = null, _labCurrent = null;
+let _labReturn = null, _labCurrent = null, _labLast = null;
 function openBreakerLab() {
   if (!_labReturn) _labReturn = captureLayout();      // restore the user's deck on close
   let ov = document.getElementById('breakerLabView');
   if (!ov) { ov = document.createElement('div'); ov.id = 'breakerLabView'; document.body.appendChild(ov); }
+  _labLast = null;
   _labRenderHome(ov);
   ov.classList.add('open');
 }
@@ -7573,30 +7746,54 @@ function closeBreakerLab() {
   if (ov) ov.classList.remove('open');
   if (_labReturn) { const back = _labReturn; _labReturn = null; applyLayout(back); }
 }
+// The network the Lab shows and trains: the stored one, else a fresh prior net.
+function _labNet(st) { return (st.net && st.net.U) ? st.net : brkNetInit(breakerWeightsFromT(_labPriorT())); }
+function _labLearnedSummary(net) {
+  // Change relative to the prior, floored so a near-zero prior (breaker count)
+  // doesn't read as a huge percentage swing.
+  const rows = BRK_TERMS.map((k, i) => {
+    const p = net.prior[i], w = net.w[i];
+    return { k, rel: (w - p) / Math.max(Math.abs(p), 0.15) };
+  }).filter(r => Math.abs(r.rel) >= 0.1).sort((a, b) => Math.abs(b.rel) - Math.abs(a.rel)).slice(0, 4);
+  const hidden = net.a.reduce((s, a) => s + Math.abs(a), 0);
+  const parts = rows.map(r => `${LAB_TERM_NAMES[r.k]} ${r.rel > 0 ? '↑' : '↓'}${Math.round(Math.abs(r.rel) * 100)}%`);
+  if (hidden > 0.02) parts.push(`combination rules (hidden layer) ${hidden.toFixed(2)}`);
+  return parts.length ? parts.join(' · ') : 'no change from the starting weights yet';
+}
 function _labRenderHome(ov) {
   const st = _labStore();
+  const net = _labNet(st);
   const done = new Set(st.evals.map(e => e.name));
   const rows = LAB_EXAMPLES.map((ex, i) =>
     `<button type="button" class="bl-ex" onclick="labShowExample(${i})">${done.has(ex.name) ? '✅' : '▫️'} ${ex.name}</button>`).join('');
   const customs = st.evals.filter(e => e.custom).map(e => `<span style="font-size:.78rem;margin-right:.6rem">✅ ${e.name}</span>`).join('');
   const n = st.evals.length;
+  const guesses = st.evals.filter(e => e.guessRight != null).slice(-8).map(e => e.guessRight ? '✓' : '✗').join(' ');
+  const last = _labLast ? `<div style="margin:.5rem 0;padding:.5rem .7rem;border:1px solid var(--border);border-radius:8px;background:var(--surface-2)">
+      ${_labLast.guessRight == null ? 'Recorded.' : _labLast.guessRight
+        ? `🤖 The network <b>guessed your pick</b> on ${_labLast.name}.`
+        : `🤖 The network guessed a different layout on ${_labLast.name} — it has now retrained on that.`}
+      Retrained on ${n} pick${n === 1 ? '' : 's'}: it now ranks your choice first on <b>${st.agree ?? 0} of ${st.total ?? 0}</b>.</div>` : '';
   ov.innerHTML = `<div class="bl-box">
     <div class="bl-bar"><span>🧪 Breaker Placement Lab</span>
       <span><button type="button" onclick="closeBreakerLab()" title="Close">&times;</button></span></div>
     <div class="bl-body">
-      <p style="margin:.2rem 0 .4rem">Pick the breaker-board placement <b>you would build</b> on a few example decks.
-      Each candidate is your optimizer under a different COST ⟷ LOOKS weighting.
-      After <b>3+</b> examples, lock it in — the slider goes away and the learned
-      weighting places the breakers on every deck.</p>
+      <p style="margin:.2rem 0 .4rem">Pick the breaker-board placement <b>you would build</b>. A small neural network
+      scores every possible placement on waste, symmetry, equal segments, corners, breaker count, and — from a survey of
+      ~170 built decks — lining up with railing posts and the stairs. <b>Every pick retrains it</b>; after <b>3+</b>,
+      lock it in and it places the breakers on every deck (the slider goes away).</p>
+      ${last}
       <div class="bl-exlist">${rows}
         <button type="button" class="bl-ex" onclick="labShowExample(-1)">➕ use the CURRENT deck</button>
       </div>
       ${customs ? `<div style="margin:.3rem 0">${customs}</div>` : ''}
-      ${st.learned ? `<p style="color:var(--accent2);font-size:.8rem">Learned placement is ACTIVE (fit t=${st.learned.t} from ${st.learned.examples} examples). Re-evaluate and lock in again to refit.</p>` : ''}
+      <div style="font-size:.8rem;margin:.6rem 0 .2rem"><b>What it has learned:</b> ${_labLearnedSummary(net)}</div>
+      ${guesses ? `<div style="font-size:.8rem;color:var(--muted)">Its last guesses: ${guesses}</div>` : ''}
+      ${st.locked ? `<p style="color:var(--accent2);font-size:.8rem;margin:.4rem 0 0">The trained network is placing breakers on your decks. New picks keep training it.</p>` : ''}
       <div class="bl-foot">
-        <span style="color:var(--muted)">${n} example${n === 1 ? '' : 's'} evaluated</span>
+        <span style="color:var(--muted)">${n} pick${n === 1 ? '' : 's'}${st.total ? ` · agrees with ${st.agree}/${st.total}` : ''}</span>
         <span>
-          <button type="button" class="bl-btn" ${n >= 3 ? '' : 'disabled'} onclick="labFinalize()">🔒 Lock in the learned placement${n < 3 ? ` (${n}/3)` : ''}</button>
+          ${st.locked ? '' : `<button type="button" class="bl-btn" ${n >= 3 ? '' : 'disabled'} onclick="labFinalize()">🔒 Use the trained network${n < 3 ? ` (${n}/3)` : ''}</button>`}
           <button type="button" class="bl-btn bl-ghost" onclick="resetBreakerLab()">Reset</button>
         </span>
       </div>
@@ -7606,32 +7803,54 @@ function labShowExample(i) {
   const ex = i >= 0 ? LAB_EXAMPLES[i]
     : { name: 'Current deck', custom: true, layout: _labReturn || captureLayout() };
   applyLayout(JSON.parse(JSON.stringify(ex.layout)));
+  const st = _labStore();
+  const net = _labNet(st);
+  const runs = [...LAB_PRESETS.map(p => ({ key: p.key, label: p.label, w: _labPresetWeights(p) })),
+                { key: 'net', label: '', w: net }];
   const cands = [];
   try {
-    for (const p of LAB_PRESETS) {
-      window._breakerWeightsOverride = breakerWeightsFromT(p.t);
+    for (const r of runs) {
+      window._breakerWeightsOverride = r.w;
+      window._breakerCapture = [];
       const DL = computeDeckingLayout();
-      const xs = (DL.breakers || []).map(b => +b.x.toFixed(2)).sort((a, b) => a - b);
+      const phis = window._breakerCapture;
+      const xs = ((DL && DL.breakers) || []).map(b => +b.x.toFixed(2)).sort((a, b) => a - b);
       const sig = xs.join('|');
       const hit = cands.find(c => c.sig === sig);
-      if (hit) hit.presets.push(p.key);
-      else cands.push({ sig, xs, presets: [p.key], breakers: (DL.breakers || []).map(b => ({ x: b.x, z0: b.z0, z1: b.z1 })) });
+      if (hit) { if (r.label) hit.presets.push(r.key); continue; }
+      cands.push({ sig, xs, phis, presets: r.label ? [r.key] : [],
+                   breakers: ((DL && DL.breakers) || []).map(b => ({ x: b.x, z0: b.z0, z1: b.z1 })) });
     }
-  } finally { window._breakerWeightsOverride = null; }
-  _labCurrent = { name: ex.name, custom: !!ex.custom, cands };
+  } finally { window._breakerWeightsOverride = null; window._breakerCapture = null; }
+  let guess = -1, gs = Infinity;
+  cands.forEach((c, k) => { const s = brkNetDeckScore(net, c.phis); if (s < gs - 1e-12) { gs = s; guess = k; } });
+  _labCurrent = { name: ex.name, custom: !!ex.custom, cands, guess };
   _labRenderExample();
+}
+function _labTermChips(c, hasPosts, hasStairs) {
+  const nReg = Math.max(1, c.phis.length);
+  const avg = i => c.phis.reduce((s, phi) => s + phi[i], 0) / nReg;
+  const chips = [];
+  if (avg(0) < 0.02) chips.push('no waste'); else chips.push(`waste ${Math.round(avg(0) * 100)}%`);
+  if (avg(1) < 0.01) chips.push('symmetric');
+  if (hasPosts && c.phis.some(phi => phi[4] > 0 && phi[5] < 0.25)) chips.push('at railing posts');
+  if (hasStairs && c.phis.some(phi => phi[6] < 0.12)) chips.push('at the stairs');
+  return chips.join(' · ');
 }
 function _labRenderExample() {
   const ov = document.getElementById('breakerLabView');
   const { name, cands } = _labCurrent;
+  const hasPosts  = railingPostPositions().some(p => p.a === 'x');
+  const hasStairs = !!document.getElementById('stairEnabled')?.checked && stairCells.length > 0;
   const prev = _labStore().evals.find(e => e.name === name);
   const none = cands.every(c => !c.xs.length);
   const cards = none
     ? `<p style="color:var(--muted)">This deck needs no breaker boards (every board run fits one stock length, or the field is laid diagonally) — there is nothing to evaluate here. Pick a larger example.</p>`
     : cands.map((c, ci) => `
-      <div class="bl-card${prev && prev.chosenSig === c.sig ? ' bl-chosen' : ''}" onclick="labChoose(${ci})">
+      <div class="bl-card${prev && prev.cands[prev.chosen] && prev.cands[prev.chosen].sig === c.sig ? ' bl-chosen' : ''}" onclick="labChoose(${ci})">
         ${_labSvg(c)}
-        <div class="bl-cap">${c.xs.length} breaker${c.xs.length === 1 ? '' : 's'} · <span style="color:var(--muted)">${c.presets.map(k => (LAB_PRESETS.find(p => p.key === k) || {}).label).join(' / ')}</span></div>
+        <div class="bl-cap">${c.xs.length} breaker${c.xs.length === 1 ? '' : 's'}${c.presets.length ? ` · <span style="color:var(--muted)">${c.presets.map(k => (LAB_PRESETS.find(p => p.key === k) || {}).label).join(' / ')}</span>` : ''}</div>
+        <div class="bl-cap" style="color:var(--muted)">${_labTermChips(c, hasPosts, hasStairs)}</div>
       </div>`).join('');
   ov.innerHTML = `<div class="bl-box">
     <div class="bl-bar"><span>🧪 ${name} — which would you build?</span>
@@ -7639,46 +7858,48 @@ function _labRenderExample() {
       <button type="button" onclick="closeBreakerLab()" title="Close">&times;</button></span></div>
     <div class="bl-body">
       ${!none && cands.length === 1 ? '<p style="color:var(--muted);margin:.2rem 0 .5rem">Every weighting agrees on this deck — clicking it still records the example.</p>'
-        : '<p style="color:var(--muted);margin:.2rem 0 .5rem">Orange lines are the breaker boards. Click the layout you would build.</p>'}
+        : '<p style="color:var(--muted);margin:.2rem 0 .5rem">Orange lines are breaker boards, dots are railing posts, green marks the stair opening. Click the layout you would build — the network\'s guess is revealed after you pick.</p>'}
       <div class="bl-cards">${cards}</div>
     </div></div>`;
 }
 function labChoose(ci) {
-  const { name, custom, cands } = _labCurrent;
-  const c = cands[ci];
-  if (!c) return;
+  const { name, custom, cands, guess } = _labCurrent;
+  if (!cands[ci]) return;
   const st = _labStore();
+  const distinct = new Set(cands.map(c => c.sig)).size;
+  const guessRight = distinct > 1 && guess >= 0 ? cands[guess].sig === cands[ci].sig : null;
   st.evals = st.evals.filter(e => e.name !== name);
-  st.evals.push({ name, custom, ts: Date.now(), chosenSig: c.sig, chosenXs: c.xs,
-                  chosenPresets: c.presets,
-                  candidates: cands.map(k => ({ presets: k.presets, xs: k.xs })),
+  st.evals.push({ name, custom, ts: Date.now(), chosen: ci, guessRight,
+                  cands: cands.map(k => ({ sig: k.sig, xs: k.xs, phis: k.phis, presets: k.presets })),
                   layout: custom ? (_labReturn || null) : null });   // keep custom decks for future refits
+  // Retrain from the prior on ALL picks — deterministic, and every pick counts equally.
+  const res = brkNetTrain(brkNetInit(breakerWeightsFromT(_labPriorT())), st.evals);
+  st.net = res.net; st.agree = res.agree; st.total = res.total;
   _labWrite(st);
+  if (st.locked) window._breakerNet = st.net;          // the live placement improves with this pick
+  _labLast = { name, guessRight };
   const ov = document.getElementById('breakerLabView');
   if (ov) _labRenderHome(ov);
 }
 function labFinalize() {
   const st = _labStore();
   if (st.evals.length < 3) { alert('Evaluate at least 3 examples first.'); return; }
-  // The learned fit (v1): the COST↔LOOKS position most consistent with the picks —
-  // count how often each preset produced the chosen layout, average the t of the
-  // tied winners. chosenXs stay stored, so a richer fit can replace this later.
-  const score = {};
-  LAB_PRESETS.forEach(p => score[p.key] = 0);
-  st.evals.forEach(ev => (ev.chosenPresets || []).forEach(k => { if (k in score) score[k]++; }));
-  const max = Math.max(...LAB_PRESETS.map(p => score[p.key]));
-  const top = LAB_PRESETS.filter(p => score[p.key] === max);
-  const tStar = top.reduce((s, p) => s + p.t, 0) / top.length;
-  st.learned = { t: +tStar.toFixed(2), weights: breakerWeightsFromT(tStar), examples: st.evals.length, ts: Date.now() };
+  if (!st.net || !st.net.U) {
+    const res = brkNetTrain(brkNetInit(breakerWeightsFromT(_labPriorT())), st.evals);
+    st.net = res.net; st.agree = res.agree; st.total = res.total;
+  }
+  st.locked = true;
   _labWrite(st);
-  window._breakerLearnedWeights = st.learned.weights;
+  window._breakerNet = st.net;
   _labApplyLearnedUI(true);
-  closeBreakerLab();   // restores the user's deck and re-renders under the learned weights
+  closeBreakerLab();   // restores the user's deck and re-renders with the trained network
 }
 function resetBreakerLab() {
-  if (!confirm('Clear the learned placement and all example evaluations, and bring the COST ⟷ LOOKS slider back?')) return;
+  if (!confirm('Clear the trained network and all example picks, and bring the COST ⟷ LOOKS slider back?')) return;
   _labWrite({ evals: [] });
+  window._breakerNet = null;
   window._breakerLearnedWeights = null;
+  _labLast = null;
   _labApplyLearnedUI(false);
   const ov = document.getElementById('breakerLabView');
   if (ov && ov.classList.contains('open')) _labRenderHome(ov);
@@ -7715,19 +7936,28 @@ function _labSvg(c) {
   }
   const lines = c.breakers.map(b =>
     `<line x1="${((b.x - x0) * sc).toFixed(1)}" y1="${((b.z0 - z0) * sc).toFixed(1)}" x2="${((b.x - x0) * sc).toFixed(1)}" y2="${((b.z1 - z0) * sc).toFixed(1)}"/>`).join('');
-  return `<svg viewBox="0 0 ${(W * sc).toFixed(0)} ${(H * sc).toFixed(0)}" width="${(W * sc).toFixed(0)}" height="${(H * sc).toFixed(0)}" style="display:block">
+  const posts = railingPostPositions().map(p =>
+    `<circle cx="${((p.x - x0) * sc).toFixed(1)}" cy="${((p.z - z0) * sc).toFixed(1)}" r="2.6"/>`).join('');
+  const gaps = stairGapsForSides({ minR, maxR, minC, maxC }, document.getElementById('deckType')?.value === 'freestanding');
+  const stairs = [...gaps.top.map(g => [g, 0]), ...gaps.bottom.map(g => [g, H])].map(([g, y]) =>
+    `<line x1="${((g.from - x0) * sc).toFixed(1)}" y1="${(y * sc).toFixed(1)}" x2="${((g.to - x0) * sc).toFixed(1)}" y2="${(y * sc).toFixed(1)}"/>`).join('');
+  return `<svg viewBox="-3 -3 ${(W * sc + 6).toFixed(0)} ${(H * sc + 6).toFixed(0)}" width="${(W * sc + 6).toFixed(0)}" height="${(H * sc + 6).toFixed(0)}" style="display:block">
     <g fill="var(--surface)" stroke="var(--border)" stroke-width="1">${rects}</g>
-    <g stroke="#f97316" stroke-width="3" stroke-linecap="round">${lines}</g></svg>`;
+    <g stroke="#22c55e" stroke-width="5" stroke-linecap="round">${stairs}</g>
+    <g stroke="#f97316" stroke-width="3" stroke-linecap="round">${lines}</g>
+    <g fill="var(--text)" opacity=".75">${posts}</g></svg>`;
 }
 
 applyPriceBook();              // catalog + any saved overrides become the live prices
-// Learned breaker weights (if the Lab was finalized) take over BEFORE the first render.
+// The trained breaker network (if the user locked it in) takes over BEFORE the
+// first render; a v1 weight fit (pre-network Lab) still applies until replaced.
 try {
   const _bl0 = _labStore();
-  if (_bl0.learned && _bl0.learned.weights) window._breakerLearnedWeights = _bl0.learned.weights;
+  if (_bl0.locked && _bl0.net && _bl0.net.U) window._breakerNet = _bl0.net;
+  else if (_bl0.learned && _bl0.learned.weights) window._breakerLearnedWeights = _bl0.learned.weights;
 } catch (e) {}
 applyLayout(DEFAULT_LAYOUT);   // builds the grid, sets all controls, renders
-if (window._breakerLearnedWeights) _labApplyLearnedUI(true);   // slider retired while learned mode is on
+if (window._breakerNet || window._breakerLearnedWeights) _labApplyLearnedUI(true);   // slider retired while learned mode is on
 
 // The railing-length choices are the Home Depot stock sections for the selected
 // system; repopulate on every type change. 'auto' (default) = waste-optimal length.
