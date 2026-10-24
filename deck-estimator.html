@@ -398,6 +398,14 @@
   /* No-footing (can't dig — pipe/utility): purple diagonal hatch over the cell.
      Uses a background overlay (not ::after) so it can coexist with the no-rail badge. */
   .cell.no-footing { background-image: repeating-linear-gradient(45deg, rgba(168,85,247,0) 0 4px, rgba(168,85,247,.6) 4px 7px) !important; outline: 2px solid #a855f7; outline-offset: -2px; }
+  /* Breaker-placement hints: house DOORS opening onto the deck (blue frame) and use
+     ZONES (dining, lounge…) as a tint — inset shadow / ::before so they stack with the
+     stair / no-rail / no-footing markings. */
+  .cell.door-cell::before { content:''; position:absolute; inset:2px; border:2px solid #3b82f6; border-radius:2px; pointer-events:none; }
+  .cell.zone-1 { box-shadow: inset 0 0 0 100px rgba(20,184,166,.5); }
+  .cell.zone-2 { box-shadow: inset 0 0 0 100px rgba(245,158,11,.5); }
+  .cell.zone-3 { box-shadow: inset 0 0 0 100px rgba(168,85,247,.5); }
+  .cell.zone-4 { box-shadow: inset 0 0 0 100px rgba(244,63,94,.5); }
   /* ── Area-erase selection ── */
   .cell.area-sel { background: rgba(239,68,68,0.38) !important; outline: 1px solid #f87171; outline-offset: -1px; }
   #deckGrid.area-erase-active { cursor: crosshair; }
@@ -598,7 +606,15 @@
           <button class="tbtn" data-mark="stair" title="Mark stair entry cells (or Ctrl+click)">▤ Stairs</button>
           <button class="tbtn" data-mark="norail" title="Mark no-railing edges (or Shift+click)">▯ No-rail</button>
           <button class="tbtn" data-mark="nodig" title="Mark can't-dig cells (or Alt+click)">⛔ No-dig</button>
+          <button class="tbtn" data-mark="door" title="Mark the edge cells where a house door opens onto the deck — breaker boards line up with doors">🚪 Door</button>
+          <button class="tbtn" data-mark="zone" title="Paint use zones (dining, lounge, grill…) — breaker boards like to sit on the line between zones">▦ Zone</button>
         </div>
+        <select id="zonePick" title="Zone being painted (tap a painted cell again to clear it)" style="display:none;background:var(--input-bg);color:var(--text);border:1px solid var(--input-border);border-radius:4px;font-size:12px;padding:2px 4px">
+          <option value="1">Zone 1 · teal</option>
+          <option value="2">Zone 2 · amber</option>
+          <option value="3">Zone 3 · violet</option>
+          <option value="4">Zone 4 · rose</option>
+        </select>
       </div>
       <div class="grid-toolbar" style="margin-top:4px">
         <span class="toolbar-label">Auto-fill</span>
@@ -2898,10 +2914,11 @@ function breakerSegmentsOf(breakers, length) {
   for (let i = 1; i < pts.length; i++) segs.push(pts[i] - pts[i - 1]);
   return segs;
 }
-// The scored terms, in feature-vector order. rail / stair come from the photo
-// survey of built decks: breakers that end AT a guard post, and breakers lined
-// up with the stair opening (centre or either edge), recur across builders.
-const BRK_TERMS = ['waste', 'sym', 'uniform', 'feature', 'extraBreaker', 'rail', 'stair'];
+// The scored terms, in feature-vector order. rail / stair / door / zone come from
+// the survey of built decks: breakers that end AT a guard post, line up with the
+// stair opening or a house door, and divide use zones (dining | lounge) recur
+// across builders. Doors and zones are marked on the grid by the user.
+const BRK_TERMS = ['waste', 'sym', 'uniform', 'feature', 'extraBreaker', 'rail', 'stair', 'door', 'zone'];
 // Slider position t (0 = COST … 1 = LOOKS) → the optimizer's score weights.
 // Single source for the live #breakerStyle slider, the Breaker Lab's candidate
 // presets, AND the learner's prior — all three must morph identically.
@@ -2914,6 +2931,8 @@ function breakerWeightsFromT(t) {
     extraBreaker: 0.03 * (1 - t),
     rail:         0.25 * t + 0.05,
     stair:        0.35 * t + 0.05,
+    door:         0.5 * t + 0.1,    // marked by the user, so weighted above the inferred rail/stair cues
+    zone:         0.8 * t + 0.2,
   };
 }
 function generateBreakerLayouts(length, positions, minSegment, maxStock) {
@@ -2957,7 +2976,10 @@ function generateBreakerLayouts(length, positions, minSegment, maxStock) {
 //   extraBreaker — the breaker count
 //   rail    — mean distance from each breaker to the nearest guard post it could meet (cap 1 ft)
 //   stair   — distance from the stair opening (centre / edges) to the nearest breaker (cap 3 ft)
-// `extra` = { railXs, stairXs } region-relative; absent or empty → that term is 0.
+//   door    — a breaker ON a door line (centre or jamb, within half a 16" bay) = 0; a NEAR
+//             MISS (≤ 2.5 ft off) = 1 — it reads as a mistake; clear of the door = 0.4
+//   zone    — mean distance from each zone boundary to its nearest breaker (cap 2 ft)
+// `extra` = { railXs, stairXs, doorXs, zoneXs } region-relative; absent or empty → term is 0.
 function breakerFeatures(breakers, length, features, extra) {
   const segs = breakerSegmentsOf(breakers, length);
   let wasteLF = 0;
@@ -2993,7 +3015,18 @@ function breakerFeatures(breakers, length, features, extra) {
     if (!breakers.length) stair = 1;
     else { let d = Infinity; for (const s of stairXs) d = Math.min(d, nearest(s, breakers)); stair = Math.min(d, 3) / 3; }
   }
-  return [waste, asym, cv, feature, breakers.length, rail, stair];
+  const doorXs = (extra && extra.doorXs) || [], zoneXs = (extra && extra.zoneXs) || [];
+  let door = 0;
+  if (doorXs.length && breakers.length) {
+    let d = Infinity; for (const x of doorXs) d = Math.min(d, nearest(x, breakers));
+    door = d <= 0.67 ? 0 : d <= 2.5 ? 1 : 0.4;
+  }
+  let zone = 0;
+  if (zoneXs.length) {
+    if (!breakers.length) zone = 1;
+    else { let acc = 0; for (const x of zoneXs) acc += Math.min(nearest(x, breakers), 2) / 2; zone = acc / zoneXs.length; }
+  }
+  return [waste, asym, cv, feature, breakers.length, rail, stair, door, zone];
 }
 // Lower is better; null = infeasible. `weights` is either a plain weight object
 // (slider / Lab preset) or the learner network (has .U) — same term vector.
@@ -3016,7 +3049,7 @@ function scoreBreakerLayout(breakers, length, features, weights, extra) {
 // let it learn interactions a single weight can't (e.g. symmetry mattering only
 // when no corner is available).
 const BRK_HIDDEN = 6;
-const BRK_INPUT_SCALE = [1, 1, 1, 1, 0.25, 1, 1];   // breaker count (1–4) → ~0..1 for the tanh layer
+const BRK_INPUT_SCALE = [1, 1, 1, 1, 0.25, 1, 1, 1, 1];   // breaker count (1–4) → ~0..1 for the tanh layer
 function brkNetInit(prior) {
   let seed = 20261024;                               // deterministic init: a reset reproduces exactly
   const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return (seed / 2147483648 - 0.5) * 0.8; };
@@ -3369,6 +3402,35 @@ function computeDeckingLayout() {
     [...g.top, ...g.bottom].forEach(({ from, to }) => xs.push(from, (from + to) / 2, to));
     return xs;
   })();
+  // User-marked hints. Doors: each horizontal run of door cells → its jambs + centre.
+  // Zones: every X where two side-by-side cells carry different zones (a zone next to
+  // an unzoned cell counts; the deck's own outline does not).
+  const doorAbsXs = (() => {
+    const xs = [];
+    const byRow = {};
+    doorCells.forEach(d => (byRow[d.r] = byRow[d.r] || []).push(d.c));
+    Object.values(byRow).forEach(cs => {
+      cs.sort((a, b) => a - b);
+      let s = cs[0];
+      for (let i = 1; i <= cs.length; i++) {
+        if (i < cs.length && cs[i] === cs[i - 1] + 1) continue;
+        const from = s * cellSize, to = (cs[i - 1] + 1) * cellSize;
+        xs.push(from, (from + to) / 2, to);
+        s = cs[i];
+      }
+    });
+    return xs;
+  })();
+  const zoneAbsXs = (() => {
+    if (!zoneCells.length) return [];
+    const zoneOf = new Map(zoneCells.map(z => [z.r * COLS + z.c, z.z]));
+    const xs = new Set();
+    for (let r = minR; r <= maxR; r++) for (let c = minC; c < maxC; c++) {
+      if (!grid[r][c] || !grid[r][c + 1]) continue;
+      if ((zoneOf.get(r * COLS + c) || 0) !== (zoneOf.get(r * COLS + c + 1) || 0)) xs.add((c + 1) * cellSize);
+    }
+    return [...xs];
+  })();
   const chosenXs = [];     // planes picked so far (deck-wide) → features for later regions
   regions.sort((a, b) => (b.xR - b.xL) - (a.xR - a.xL));
   regions.forEach(reg => {
@@ -3380,7 +3442,7 @@ function computeDeckingLayout() {
       .filter(x => x > reg.xL + 0.3 && x < reg.xR - 0.3)
       .map(x => +(x - reg.xL).toFixed(3));
     const rel = xs => xs.filter(x => x > reg.xL + 0.3 && x < reg.xR - 0.3).map(x => +(x - reg.xL).toFixed(3));
-    const extra = { railXs: rel(railAbsXs), stairXs: rel(stairAbsXs) };
+    const extra = { railXs: rel(railAbsXs), stairXs: rel(stairAbsXs), doorXs: rel(doorAbsXs), zoneXs: rel(zoneAbsXs) };
     const layouts = generateBreakerLayouts(len, positions, BRK_MIN_SEG, maxBoard);
     let best = null, bestScore = Infinity;
     for (const b of layouts) {
@@ -4317,7 +4379,7 @@ let isDown     = false;
 let paintValue = true;  // what value to write while dragging
 let areaEraseMode = false;
 let areaFillMode  = false;   // drag a rectangle to ADD cells (mirror of area-erase)
-let markMode      = '';      // '' | 'stair' | 'norail' | 'nodig' — toolbar substitute for Ctrl/Shift/Alt (touch devices)
+let markMode      = '';      // '' | 'stair' | 'norail' | 'nodig' | 'door' | 'zone' — toolbar marking mode (touch devices too)
 let areaSelDown   = false;
 let noRailDragging = false;  // Shift held + drag → paint "no railing" across edge cells
 let noRailDragValue = true;  // add (true) or remove (false), fixed at drag start
@@ -4330,6 +4392,10 @@ let areaSelR1 = 0, areaSelC1 = 0; // drag-end cell (current)
 let stairCells = []; // [{r, c}] — painted stair entry cells
 let noRailCells = []; // [{r, c}] — perimeter cells whose edges get NO railing
 let noFootingCells = []; // [{r, c}] — cells where a post/footing CANNOT be dug (buried pipe/utility)
+let doorCells = [];      // [{r, c}] — perimeter cells where a house door opens onto the deck (breaker hint)
+let zoneCells = [];      // [{r, c, z}] — use-zone id 1–4 per cell (dining, lounge…; breaker hint)
+let doorDragging = false, doorDragValue = true;
+let zoneDragging = false, zoneDragValue = 0;   // zone id being painted, 0 = clearing
 // ─── Zoom ──────────────────────────────────────────────────────────
 const ZOOM_STEPS = [8, 10, 12, 14, 16, 20, 24, 32]; // px per cell
 let zoomIdx = 4; // default: 16 px
@@ -4467,6 +4533,10 @@ function paintCellRaw(r, c, val) {
     if (ni !== -1) { noRailCells.splice(ni, 1); updateNoRailDisplay(); }
     const fi = noFootingCells.findIndex(nc => nc.r === r && nc.c === c);
     if (fi !== -1) { noFootingCells.splice(fi, 1); updateNoFootingDisplay(); }
+    const di = doorCells.findIndex(dc => dc.r === r && dc.c === c);
+    if (di !== -1) { doorCells.splice(di, 1); updateDoorDisplay(); }
+    const zi = zoneCells.findIndex(zc => zc.r === r && zc.c === c);
+    if (zi !== -1) { zoneCells.splice(zi, 1); updateZoneDisplay(); }
   }
   setCellDOM(r, c, val);
   return true;
@@ -4500,6 +4570,53 @@ function updateNoFootingDisplay() {
     const el = document.querySelector(`.cell[data-r="${nc.r}"][data-c="${nc.c}"]`);
     if (el) el.classList.add('no-footing');
   });
+}
+
+function updateDoorDisplay() {
+  document.querySelectorAll('.cell.door-cell').forEach(el => el.classList.remove('door-cell'));
+  doorCells.forEach(dc => {
+    const el = document.querySelector(`.cell[data-r="${dc.r}"][data-c="${dc.c}"]`);
+    if (el) el.classList.add('door-cell');
+  });
+}
+
+function updateZoneDisplay() {
+  document.querySelectorAll('.cell.zone-1, .cell.zone-2, .cell.zone-3, .cell.zone-4')
+    .forEach(el => el.classList.remove('zone-1', 'zone-2', 'zone-3', 'zone-4'));
+  zoneCells.forEach(zc => {
+    const el = document.querySelector(`.cell[data-r="${zc.r}"][data-c="${zc.c}"]`);
+    if (el) el.classList.add('zone-' + zc.z);
+  });
+}
+
+// Door cells: a doorway opens onto the deck from the house, so only PERIMETER cells
+// (with an exposed edge) can carry one — same rule as stair entries.
+function setDoorCell(r, c, value) {
+  if (!grid[r]?.[c]) return false;
+  const above = !!grid[r-1]?.[c], below = !!grid[r+1]?.[c];
+  const left  = !!grid[r]?.[c-1], right = !!grid[r]?.[c+1];
+  if (above && below && left && right) return false;
+  const idx = doorCells.findIndex(dc => dc.r === r && dc.c === c);
+  if (value && idx === -1) { doorCells.push({ r, c }); return true; }
+  if (!value && idx !== -1) { doorCells.splice(idx, 1); return true; }
+  return false;
+}
+
+// Zone cells: any painted cell; z = 1–4 sets that zone, 0 clears it.
+function setZoneCell(r, c, z) {
+  if (!grid[r]?.[c]) return false;
+  const idx = zoneCells.findIndex(zc => zc.r === r && zc.c === c);
+  if (!z) { if (idx === -1) return false; zoneCells.splice(idx, 1); return true; }
+  if (idx !== -1) { if (zoneCells[idx].z === z) return false; zoneCells[idx].z = z; return true; }
+  zoneCells.push({ r, c, z });
+  return true;
+}
+// First cell of a zone drag decides: painting the active zone, or clearing (when the
+// cell already carries it — "tap again to remove").
+function zoneDragStart(r, c) {
+  const active = +(document.getElementById('zonePick')?.value) || 1;
+  const cur = zoneCells.find(zc => zc.r === r && zc.c === c);
+  return cur && cur.z === active ? 0 : active;
 }
 
 // Add/remove a "no railing" flag on one perimeter (edge) cell. Returns true if it
@@ -4702,6 +4819,22 @@ document.getElementById('deckGrid').addEventListener('mousedown', e => {
     return;
   }
 
+  // Door / zone marking (toolbar modes) — breaker-placement hints.
+  if (markMode === 'door' && e.button === 0) {
+    if (!grid[r]?.[c]) return;
+    doorDragValue = !doorCells.some(dc => dc.r === r && dc.c === c);
+    doorDragging  = true;
+    if (setDoorCell(r, c, doorDragValue)) { updateDoorDisplay(); render(); }
+    return;
+  }
+  if (markMode === 'zone' && e.button === 0) {
+    if (!grid[r]?.[c]) return;
+    zoneDragValue = zoneDragStart(r, c);
+    zoneDragging  = true;
+    if (setZoneCell(r, c, zoneDragValue)) { updateZoneDisplay(); render(); }
+    return;
+  }
+
   // Area add/subtract: start rectangle drag
   if ((areaEraseMode || areaFillMode) && e.button === 0) {
     areaSelDown = true;
@@ -4732,6 +4865,14 @@ document.getElementById('deckGrid').addEventListener('mouseover', e => {
     if (setNoFooting(+cell.dataset.r, +cell.dataset.c, noFootingDragValue)) { updateNoFootingDisplay(); render(); }
     return;
   }
+  if (doorDragging) {
+    if (setDoorCell(+cell.dataset.r, +cell.dataset.c, doorDragValue)) { updateDoorDisplay(); render(); }
+    return;
+  }
+  if (zoneDragging) {
+    if (setZoneCell(+cell.dataset.r, +cell.dataset.c, zoneDragValue)) { updateZoneDisplay(); render(); }
+    return;
+  }
   if (areaEraseMode || areaFillMode) {
     if (areaSelDown) updateAreaSel(+cell.dataset.r, +cell.dataset.c);
     return;
@@ -4759,6 +4900,8 @@ document.addEventListener('mouseup', () => {
   noRailDragging = false;
   stairDragging  = false;
   noFootingDragging = false;
+  doorDragging = false;
+  zoneDragging = false;
   isDown = false;
 });
 document.getElementById('deckGrid').addEventListener('contextmenu', e => e.preventDefault());
@@ -4769,6 +4912,8 @@ document.querySelectorAll('#markModeBtns .tbtn').forEach(btn => {
     markMode = markMode === btn.dataset.mark ? '' : btn.dataset.mark;   // tap again to turn off
     document.querySelectorAll('#markModeBtns .tbtn')
       .forEach(b => b.classList.toggle('active', b.dataset.mark === markMode));
+    const zp = document.getElementById('zonePick');
+    if (zp) zp.style.display = markMode === 'zone' ? '' : 'none';
   });
 });
 
@@ -4807,6 +4952,20 @@ document.querySelectorAll('#markModeBtns .tbtn').forEach(btn => {
       if (setNoFooting(r, c, noFootingDragValue)) { updateNoFootingDisplay(); render(); }
       return;
     }
+    if (markMode === 'door') {
+      if (!grid[r]?.[c]) return;
+      doorDragValue = !doorCells.some(dc => dc.r === r && dc.c === c);
+      doorDragging = true;
+      if (setDoorCell(r, c, doorDragValue)) { updateDoorDisplay(); render(); }
+      return;
+    }
+    if (markMode === 'zone') {
+      if (!grid[r]?.[c]) return;
+      zoneDragValue = zoneDragStart(r, c);
+      zoneDragging = true;
+      if (setZoneCell(r, c, zoneDragValue)) { updateZoneDisplay(); render(); }
+      return;
+    }
     if (areaEraseMode || areaFillMode) {
       areaSelDown = true;
       areaSelR0 = areaSelR1 = r; areaSelC0 = areaSelC1 = c;
@@ -4826,6 +4985,8 @@ document.querySelectorAll('#markModeBtns .tbtn').forEach(btn => {
     if (noRailDragging)      { if (setNoRail(r, c, noRailDragValue))         { updateNoRailDisplay(); render(); }    return; }
     if (stairDragging)       { if (setStairEntry(r, c, stairDragValue))      { updateStairCellDisplay(); render(); } return; }
     if (noFootingDragging)   { if (setNoFooting(r, c, noFootingDragValue))   { updateNoFootingDisplay(); render(); } return; }
+    if (doorDragging)        { if (setDoorCell(r, c, doorDragValue))         { updateDoorDisplay(); render(); }      return; }
+    if (zoneDragging)        { if (setZoneCell(r, c, zoneDragValue))         { updateZoneDisplay(); render(); }      return; }
     if (areaEraseMode || areaFillMode) { if (areaSelDown) updateAreaSel(r, c); return; }
     if (!isDown) return;
     paintCell(r, c, paintValue);
@@ -4889,9 +5050,13 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   stairCells.length = 0;
   noRailCells.length = 0;
   noFootingCells.length = 0;
+  doorCells.length = 0;
+  zoneCells.length = 0;
   updateStairCellDisplay();
   updateNoRailDisplay();
   updateNoFootingDisplay();
+  updateDoorDisplay();
+  updateZoneDisplay();
   renumberCells(); updateStats(); render();
 });
 
@@ -7691,7 +7856,12 @@ const LAB_LS_KEY = 'deckEstimatorBreakerLab_v1';   // literal key (hoisted-const
 function _labStore() {
   let s;
   try { s = JSON.parse(localStorage.getItem(LAB_LS_KEY)) || {}; } catch { s = {}; }
-  s.evals = (s.evals || []).filter(e => e.cands);    // v1 picks (no term vectors) can't train — dropped
+  // Picks are only trainable if their term vectors match the current BRK_TERMS:
+  // v1 picks (no vectors) and picks from an older term list are dropped, and a
+  // network of the wrong width is discarded (and unlocked).
+  const D = BRK_TERMS.length;
+  s.evals = (s.evals || []).filter(e => e.cands && e.cands.every(c => (c.phis || []).every(p => p.length === D)));
+  if (s.net && (!s.net.w || s.net.w.length !== D)) { delete s.net; s.locked = false; }
   return s;
 }
 function _labWrite(s) { try { localStorage.setItem(LAB_LS_KEY, JSON.stringify(s)); return true; } catch { return false; } }
@@ -7703,10 +7873,13 @@ const LAB_PRESETS = [
   { key: 'looks',     label: 'Looks-first',   t: 1    },
   { key: 'posts',     label: 'At railing posts', t: 0.6, boost: { rail: 4 } },
   { key: 'stairs',    label: 'Lined up with stairs', t: 0.6, boost: { stair: 4 } },
+  { key: 'door',      label: 'Lined up with the door', t: 0.6, boost: { door: 4 } },
+  { key: 'zones',     label: 'On zone lines', t: 0.6, boost: { zone: 4 } },
 ];
 const LAB_TERM_NAMES = { waste: 'low offcut waste', sym: 'mirror symmetry', uniform: 'equal segment lengths',
   feature: 'breaks at corners / shared lines', extraBreaker: 'fewer breakers',
-  rail: 'lined up with railing posts', stair: 'lined up with the stairs' };
+  rail: 'lined up with railing posts', stair: 'lined up with the stairs',
+  door: 'lined up with doors', zone: 'on zone boundaries' };
 function _labPriorT() { return 0.6; }
 function _labPresetWeights(p) {
   const w = breakerWeightsFromT(p.t);
@@ -7714,14 +7887,17 @@ function _labPresetWeights(p) {
   return w;
 }
 // Example decks: flat, board runs > one stock length so the optimizer has real
-// choices. Shapes exercise corners / shared planes / plain runs, and two carry
-// stairs so the photo-survey stair alignment has something to align to.
+// choices. Shapes exercise corners / shared planes / plain runs; two carry stairs,
+// and two carry a house door and/or use zones, so every survey term has something
+// to align to.
 const LAB_EXAMPLES = (() => {
   const rect = (cells, r0, c0, w, h) => { for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) cells.push([r, c]); };
-  const ctl = stairs => Object.assign({}, DEFAULT_LAYOUT.controls,
-    { stairEnabled: !!stairs, demoEnabled: false, deckHeight: '36', gradeBR: '0', deckLayAngle: 'perp' });
-  const mk = (name, build, stairCells = []) => { const cells = []; build(cells); return { name,
-    layout: { v: 1, cellSize: 2, cells, stairCells, noRailCells: stairCells.slice(), noFootingCells: [], controls: ctl(stairCells.length) } }; };
+  const ctl = (stairs, extra) => Object.assign({}, DEFAULT_LAYOUT.controls,
+    { stairEnabled: !!stairs, demoEnabled: false, deckHeight: '36', gradeBR: '0', deckLayAngle: 'perp' }, extra || {});
+  const zoneRect = (z, r0, c0, w, h) => { const out = []; for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) out.push([r, c, z]); return out; };
+  const mk = (name, build, stairCells = [], o = {}) => { const cells = []; build(cells); return { name,
+    layout: { v: 1, cellSize: 2, cells, stairCells, noRailCells: stairCells.slice(), noFootingCells: [],
+              doorCells: o.doors || [], zoneCells: o.zones || [], controls: ctl(stairCells.length, o.controls) } }; };
   return [
     mk('Long porch 36×12',   c => rect(c, 0, 0, 18, 6)),
     mk('L-shape 32×24',      c => { rect(c, 0, 0, 8, 12); rect(c, 6, 8, 8, 6); }),
@@ -7730,6 +7906,12 @@ const LAB_EXAMPLES = (() => {
     mk('U-shape 30×20',      c => { rect(c, 0, 0, 3, 10); rect(c, 0, 12, 3, 10); rect(c, 5, 0, 15, 5); }),
     mk('Stairs off-centre 34×14', c => rect(c, 0, 0, 17, 7), [[6, 4], [6, 5]]),
     mk('Centre stairs 38×12',     c => rect(c, 0, 0, 19, 6), [[5, 9], [5, 10]]),
+    mk('Door + dining | lounge 36×14', c => rect(c, 0, 0, 18, 7), [], {
+      doors: [[0, 5], [0, 6]],
+      zones: [...zoneRect(1, 0, 0, 8, 7), ...zoneRect(2, 0, 8, 10, 7)],
+      controls: { deckType: 'attached' } }),
+    mk('Lounge | grill zones 40×12', c => rect(c, 0, 0, 20, 6), [], {
+      zones: [...zoneRect(1, 0, 0, 11, 6), ...zoneRect(3, 0, 11, 9, 6)] }),
   ];
 })();
 let _labReturn = null, _labCurrent = null, _labLast = null;
@@ -7780,7 +7962,8 @@ function _labRenderHome(ov) {
     <div class="bl-body">
       <p style="margin:.2rem 0 .4rem">Pick the breaker-board placement <b>you would build</b>. A small neural network
       scores every possible placement on waste, symmetry, equal segments, corners, breaker count, and — from a survey of
-      ~170 built decks — lining up with railing posts and the stairs. <b>Every pick retrains it</b>; after <b>3+</b>,
+      ~170 built decks — lining up with railing posts, the stairs, the house doors you mark (🚪 Door) and the lines
+      between the use zones you paint (▦ Zone). <b>Every pick retrains it</b>; after <b>3+</b>,
       lock it in and it places the breakers on every deck (the slider goes away).</p>
       ${last}
       <div class="bl-exlist">${rows}
@@ -7827,21 +8010,25 @@ function labShowExample(i) {
   _labCurrent = { name: ex.name, custom: !!ex.custom, cands, guess };
   _labRenderExample();
 }
-function _labTermChips(c, hasPosts, hasStairs) {
+function _labTermChips(c, has) {
   const nReg = Math.max(1, c.phis.length);
   const avg = i => c.phis.reduce((s, phi) => s + phi[i], 0) / nReg;
   const chips = [];
   if (avg(0) < 0.02) chips.push('no waste'); else chips.push(`waste ${Math.round(avg(0) * 100)}%`);
   if (avg(1) < 0.01) chips.push('symmetric');
-  if (hasPosts && c.phis.some(phi => phi[4] > 0 && phi[5] < 0.25)) chips.push('at railing posts');
-  if (hasStairs && c.phis.some(phi => phi[6] < 0.12)) chips.push('at the stairs');
+  if (has.posts  && c.phis.some(phi => phi[4] > 0 && phi[5] < 0.25)) chips.push('at railing posts');
+  if (has.stairs && c.phis.some(phi => phi[6] < 0.12)) chips.push('at the stairs');
+  if (has.doors  && c.phis.some(phi => phi[4] > 0 && phi[7] === 0)) chips.push('at the door');
+  if (has.doors  && c.phis.some(phi => phi[7] === 1)) chips.push('just misses the door');
+  if (has.zones  && c.phis.some(phi => phi[8] < 0.15)) chips.push('on the zone line');
   return chips.join(' · ');
 }
 function _labRenderExample() {
   const ov = document.getElementById('breakerLabView');
   const { name, cands } = _labCurrent;
-  const hasPosts  = railingPostPositions().some(p => p.a === 'x');
-  const hasStairs = !!document.getElementById('stairEnabled')?.checked && stairCells.length > 0;
+  const has = { posts: railingPostPositions().some(p => p.a === 'x'),
+                stairs: !!document.getElementById('stairEnabled')?.checked && stairCells.length > 0,
+                doors: doorCells.length > 0, zones: zoneCells.length > 0 };
   const prev = _labStore().evals.find(e => e.name === name);
   const none = cands.every(c => !c.xs.length);
   const cards = none
@@ -7850,7 +8037,7 @@ function _labRenderExample() {
       <div class="bl-card${prev && prev.cands[prev.chosen] && prev.cands[prev.chosen].sig === c.sig ? ' bl-chosen' : ''}" onclick="labChoose(${ci})">
         ${_labSvg(c)}
         <div class="bl-cap">${c.xs.length} breaker${c.xs.length === 1 ? '' : 's'}${c.presets.length ? ` · <span style="color:var(--muted)">${c.presets.map(k => (LAB_PRESETS.find(p => p.key === k) || {}).label).join(' / ')}</span>` : ''}</div>
-        <div class="bl-cap" style="color:var(--muted)">${_labTermChips(c, hasPosts, hasStairs)}</div>
+        <div class="bl-cap" style="color:var(--muted)">${_labTermChips(c, has)}</div>
       </div>`).join('');
   ov.innerHTML = `<div class="bl-box">
     <div class="bl-bar"><span>🧪 ${name} — which would you build?</span>
@@ -7858,7 +8045,7 @@ function _labRenderExample() {
       <button type="button" onclick="closeBreakerLab()" title="Close">&times;</button></span></div>
     <div class="bl-body">
       ${!none && cands.length === 1 ? '<p style="color:var(--muted);margin:.2rem 0 .5rem">Every weighting agrees on this deck — clicking it still records the example.</p>'
-        : '<p style="color:var(--muted);margin:.2rem 0 .5rem">Orange lines are breaker boards, dots are railing posts, green marks the stair opening. Click the layout you would build — the network\'s guess is revealed after you pick.</p>'}
+        : '<p style="color:var(--muted);margin:.2rem 0 .5rem">Orange lines are breaker boards, dots are railing posts, green marks the stair opening, blue a house door, tints the use zones. Click the layout you would build — the network\'s guess is revealed after you pick.</p>'}
       <div class="bl-cards">${cards}</div>
     </div></div>`;
 }
@@ -7941,8 +8128,15 @@ function _labSvg(c) {
   const gaps = stairGapsForSides({ minR, maxR, minC, maxC }, document.getElementById('deckType')?.value === 'freestanding');
   const stairs = [...gaps.top.map(g => [g, 0]), ...gaps.bottom.map(g => [g, H])].map(([g, y]) =>
     `<line x1="${((g.from - x0) * sc).toFixed(1)}" y1="${(y * sc).toFixed(1)}" x2="${((g.to - x0) * sc).toFixed(1)}" y2="${(y * sc).toFixed(1)}"/>`).join('');
+  const ZONE_FILL = { 1: 'rgba(20,184,166,.35)', 2: 'rgba(245,158,11,.35)', 3: 'rgba(168,85,247,.35)', 4: 'rgba(244,63,94,.35)' };
+  const zones = zoneCells.map(z =>
+    `<rect x="${((z.c - minC) * cellSize * sc).toFixed(1)}" y="${((z.r - minR) * cellSize * sc).toFixed(1)}" width="${(cellSize * sc).toFixed(1)}" height="${(cellSize * sc).toFixed(1)}" fill="${ZONE_FILL[z.z] || 'none'}"/>`).join('');
+  const doors = doorCells.map(d =>
+    `<rect x="${((d.c - minC) * cellSize * sc + 1).toFixed(1)}" y="${((d.r - minR) * cellSize * sc + 1).toFixed(1)}" width="${(cellSize * sc - 2).toFixed(1)}" height="${(cellSize * sc - 2).toFixed(1)}"/>`).join('');
   return `<svg viewBox="-3 -3 ${(W * sc + 6).toFixed(0)} ${(H * sc + 6).toFixed(0)}" width="${(W * sc + 6).toFixed(0)}" height="${(H * sc + 6).toFixed(0)}" style="display:block">
     <g fill="var(--surface)" stroke="var(--border)" stroke-width="1">${rects}</g>
+    <g stroke="none">${zones}</g>
+    <g fill="none" stroke="#3b82f6" stroke-width="2.5">${doors}</g>
     <g stroke="#22c55e" stroke-width="5" stroke-linecap="round">${stairs}</g>
     <g stroke="#f97316" stroke-width="3" stroke-linecap="round">${lines}</g>
     <g fill="var(--text)" opacity=".75">${posts}</g></svg>`;
@@ -8129,6 +8323,8 @@ function captureLayout() {
     stairCells:  stairCells.map(s => [s.r, s.c]),
     noRailCells: noRailCells.map(n => [n.r, n.c]),
     noFootingCells: noFootingCells.map(n => [n.r, n.c]),
+    doorCells: doorCells.map(d => [d.r, d.c]),
+    zoneCells: zoneCells.map(z => [z.r, z.c, z.z]),
     controls };
 }
 function applyLayout(st) {
@@ -8142,6 +8338,8 @@ function applyLayout(st) {
   stairCells.length = 0;  (st.stairCells  || []).forEach(([r, c]) => stairCells.push({ r, c }));
   noRailCells.length = 0; (st.noRailCells || []).forEach(([r, c]) => noRailCells.push({ r, c }));
   noFootingCells.length = 0; (st.noFootingCells || []).forEach(([r, c]) => noFootingCells.push({ r, c }));
+  doorCells.length = 0; (st.doorCells || []).forEach(([r, c]) => doorCells.push({ r, c }));
+  zoneCells.length = 0; (st.zoneCells || []).forEach(([r, c, z]) => zoneCells.push({ r, c, z }));
   Object.entries(st.controls || {}).forEach(([id, val]) => {
     const el = document.getElementById(id);
     if (!el || el.id.startsWith('layout') || el.type === 'file') return;
@@ -8163,7 +8361,8 @@ function applyLayout(st) {
   }
   if (typeof syncRimSize === 'function') syncRimSize();   // rim joists track the field joist size
   if (typeof refreshAvailabilityUI === 'function') refreshAvailabilityUI();
-  buildGrid(); renumberCells(); updateStairCellDisplay(); updateNoRailDisplay(); updateNoFootingDisplay(); updateStats(); render();
+  buildGrid(); renumberCells(); updateStairCellDisplay(); updateNoRailDisplay(); updateNoFootingDisplay();
+  updateDoorDisplay(); updateZoneDisplay(); updateStats(); render();
   return true;
 }
 function lsAll()  { try { return JSON.parse(localStorage.getItem('deckEstimatorLayouts_v1')) || {}; } catch { return {}; } }
